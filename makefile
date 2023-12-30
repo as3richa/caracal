@@ -2,7 +2,6 @@ CXX := g++
 CXXFLAGS := -std=c++20 -Wall -Wextra -pedantic
 
 CUDA_CXX := nvcc
-CUDA_LDFLAGS := -lcudart -lcublas -lcurand
 
 BUILD_DIR := build
 
@@ -21,7 +20,7 @@ TARGET_LIB := $(BUILD_DIR)/libcaracal.a
 all: $(TARGET_LIB)
 
 $(TARGET_LIB): $(OBJ_FILES) $(CUDA_OBJ_FILES)
-	$(CUDA_CXX) $(CUDA_LDFLAGS) -o $@ $^
+	ar cr $@ $^
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@

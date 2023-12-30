@@ -9,6 +9,7 @@
 
 #include "cuda/GenerateRandomPlanes.h"
 #include "cuda/Hashes.h"
+#include "cuda/TopK.h"
 
 // FIXME: this is nonsense
 template <typename T>
@@ -84,13 +85,14 @@ void CudaLshAnnIndex::Query(size_t *results, size_t count, const float *vectors,
 
   uint16_t *distances;
   size_t distances_pitch;
-  checkCudaErrors(ComputeHashDistances(
-      &distances, &distances_pitch, this->hashes, this->count,
-      this->hashes_pitch, hashes, count, hashes_pitch, (hash_bits + 63) / 64));
+  checkCudaErrors(
+      ComputeHashDistances(&distances, &distances_pitch, this->hashes,
+                           this->count, this->hashes_pitch, hashes, count,
+                           hashes_pitch, (hash_bits + 63) / 64 /* FIXME */));
 
-  // checkCudaErrors(cublasSgemm(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
-  // matrix_size.uiWB, matrix_size.uiHA, matrix_size.uiWA, &alpha, d_B,
-  // matrix_size.uiWB, d_A, matrix_size.uiWA, &beta, d_C, matrix_size.uiWB));
+  // FIXME
+  assert(count == 1);
+  checkCudaErrors(TopK(results, distances, this->count, neighbors));
 }
 
 } // namespace caracal

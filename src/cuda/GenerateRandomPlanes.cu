@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include <cuda.h>
 #include <curand_kernel.h>
 
 namespace caracal {

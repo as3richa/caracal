@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include <cublas_v2.h>
+#include <cuda.h>
 
 namespace caracal {
 
@@ -39,7 +40,7 @@ __global__ static void ConvertDotsToBitsKernel(uint32_t *bits,
                                                size_t dots_pitch) {
   const size_t x = threadIdx.x + blockIdx.x * blockDim.x;
   const size_t y = threadIdx.y + blockIdx.y * blockDim.y;
-  if (y >= height || x >= width) {
+  if (x >= width || y >= height) {
     return;
   }
 
@@ -124,13 +125,17 @@ __global__ static void ComputeHashDistancesKernel(
     return;
   }
 
-  const size_t left_i =
-      offset + left_hash * (left_hashes_pitch / sizeof(uint64_t));
-  cached_left_hashes[left_hash][offset] = left_hashes[left_i];
+  if (threadIdx.z == 0) {
+    const size_t left_i =
+        offset + left_hash * (left_hashes_pitch / sizeof(uint64_t));
+    cached_left_hashes[threadIdx.y][offset] = left_hashes[left_i];
+  }
 
-  const size_t right_i =
-      offset + right_hash * (right_hashes_pitch / sizeof(uint64_t));
-  cached_right_hashes[right_hash][offset] = right_hashes[right_i];
+  if (threadIdx.y == 0) {
+    const size_t right_i =
+        offset + right_hash * (right_hashes_pitch / sizeof(uint64_t));
+    cached_right_hashes[threadIdx.z][offset] = right_hashes[right_i];
+  }
 
   __syncthreads();
 

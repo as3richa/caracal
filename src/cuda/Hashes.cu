@@ -2,7 +2,6 @@
 #include <cstdint>
 
 #include <cublas_v2.h>
-#include <cuda.h>
 
 namespace caracal {
 
@@ -45,7 +44,7 @@ __global__ static void ConvertDotsToBitsKernel(uint32_t *bits,
   }
 
   const size_t dots_i = x + y * (dots_pitch / sizeof(float));
-  const uint32_t word = __ballot_sync(0xffffffff, dots[dots_i] >= 0.0);
+  const uint32_t word = __ballot_sync(__activemask(), dots[dots_i] >= 0.0);
 
   if (threadIdx.x % 32 == 0) {
     const size_t bits_i = (x / 32) + y * (bits_pitch / sizeof(uint32_t));
@@ -63,7 +62,7 @@ cudaError_t ConvertDotsToBits(uint64_t **bits, size_t *bits_pitch, float *dots,
     return error;
   }
 
-  const dim3 block(64, 1, 1);
+  const dim3 block(64, 16, 1);
   const dim3 grid((width + block.x - 1) / block.x,
                   (height + block.y - 1) / block.y, 1);
 

@@ -1,7 +1,5 @@
 #include "TopK.h"
 
-#include <cuda.h>
-
 #include <algorithm>
 #include <vector>
 
@@ -11,14 +9,12 @@ namespace caracal {
 // FIXME
 cudaError_t TopK(size_t *result, const uint16_t *distances, size_t count,
                  size_t k) {
-  printf("%d %d\n", count, k);
   std::vector<uint16_t> host_distances(count);
   cudaMemcpy(host_distances.data(), distances, count * sizeof(uint16_t),
              cudaMemcpyDeviceToHost);
 
   std::vector<std::pair<uint16_t, size_t>> distances_with_indices;
   for (const uint16_t distance : host_distances) {
-    printf("! %zu %zu\n", distance, distances_with_indices.size());
     distances_with_indices.push_back(
         std::make_pair(distance, distances_with_indices.size()));
   }

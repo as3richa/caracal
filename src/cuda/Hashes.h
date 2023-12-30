@@ -1,6 +1,12 @@
 #ifndef CARACAL_CUDA_HASHES_H_
 #define CARACAL_CUDA_HASHES_H_
 
+#include <cstddef>
+#include <cstdint>
+
+#include <cublas_v2.h>
+#include <cuda_runtime.h>
+
 namespace caracal {
 
 cudaError_t ComputeHashes(uint64_t **hashes, size_t *hashes_pitch,

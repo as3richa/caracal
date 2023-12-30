@@ -2,7 +2,6 @@
 
 #include <cstdint>
 
-#include <cuda.h>
 #include <curand_kernel.h>
 
 namespace caracal {
@@ -19,7 +18,7 @@ __global__ static void GenerateRandomPlanesKernel(float *planes, size_t count,
   const size_t i = x + y * (pitch / sizeof(float));
   curandState_t state;
   curand_init(seed, i, 0, &state);
-  planes[i] = curand_uniform(&state) - 0.5;
+  planes[i] = 2 * (curand_uniform(&state) - 0.5);
 }
 
 cudaError_t GenerateRandomPlanes(float **planes, size_t *pitch, size_t count,

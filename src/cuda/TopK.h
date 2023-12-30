@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <cuda_runtime.h>
+
 namespace caracal {
 
 cudaError_t TopK(size_t *result, const uint16_t *distances, size_t count,

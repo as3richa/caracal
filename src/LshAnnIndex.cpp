@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <queue>
+#include <random>
 #include <vector>
 
 namespace caracal {

@@ -1,13 +1,15 @@
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <vector>
 
-#include "FlatAnnIndex.h"
-#include "LshAnnIndex.h"
+#include "CudaLshAnnIndex.h"
 
 int main(void) {
   const size_t dimensions = 2;
   const size_t count = 16;
   const size_t hash_bits = 2000;
-  const size_t seed = 1337;
+  const uint64_t seed = 1337;
 
   std::vector<float> vectors(count * dimensions);
   for (size_t i = 0; i < count; i++) {
@@ -18,7 +20,7 @@ int main(void) {
     vectors[2 * i + 1] = y;
   }
 
-  caracal::FlatAnnIndex index(2, 16, vectors.data());
+  caracal::CudaLshAnnIndex index(2, 16, vectors.data(), hash_bits, seed);
 
   for (;;) {
     float vector[2];

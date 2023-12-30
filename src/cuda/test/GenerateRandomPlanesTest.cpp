@@ -6,6 +6,9 @@
 
 #include "../GenerateRandomPlanes.h"
 
+#include <chrono>
+#include <thread>
+
 int main(void) {
   const size_t count = 1337;
   const size_t dimensions = 4200;

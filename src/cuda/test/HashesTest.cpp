@@ -1,5 +1,7 @@
+#include <bit>
 #include <cassert>
 #include <cstring>
+#include <random>
 
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
@@ -73,9 +75,10 @@ void ComputeDotsTest(void) {
   cudaFree(planes);
 
   float host_dots[vectors_count][planes_count];
-  cudaMemcpy2D(host_dots, planes_count * sizeof(float), dots, dots_pitch,
-               planes_count * sizeof(float), vectors_count,
-               cudaMemcpyDeviceToHost);
+  error = cudaMemcpy2D(host_dots, planes_count * sizeof(float), dots,
+                       dots_pitch, planes_count * sizeof(float), vectors_count,
+                       cudaMemcpyDeviceToHost);
+  assert(error == cudaSuccess);
   cudaFree(dots);
 
   const float expectation[vectors_count][planes_count] = {
@@ -120,8 +123,9 @@ void ConvertDotsToBitsTest(void) {
   cudaFree(dots);
 
   uint64_t host_bits[height][(width + 64 - 1) / 64];
-  cudaMemcpy2D(host_bits, sizeof(host_bits[0]), bits, bits_pitch,
-               sizeof(host_bits[0]), height, cudaMemcpyDeviceToHost);
+  error = cudaMemcpy2D(host_bits, sizeof(host_bits[0]), bits, bits_pitch,
+                       sizeof(host_bits[0]), height, cudaMemcpyDeviceToHost);
+  assert(error == cudaSuccess);
   cudaFree(bits);
 
   assert(memcmp(host_bits, expectation, sizeof(expectation)) == 0);
@@ -190,18 +194,98 @@ void ComputeHashesTest(void) {
   assert(memcmp(host_hashes, expectation, sizeof(expectation)) == 0);
 }
 
+#include <cstdio>
+
 void ComputeHashDistancesTest(void) {
-  /*
-cudaError_t ComputeHashDistances(
-  uint16_t **distances, size_t *distances_pitch, uint64_t *left_hashes,
-  size_t left_hashes_count, size_t left_hashes_pitch, uint64_t *right_hashes,
-  size_t right_hashes_count, size_t right_hashes_pitch, size_t hash_length);
-  */
+  cudaError_t error;
+
+  const size_t hash_length = 5;
+
+  std::default_random_engine rng(1337);
+  std::uniform_int_distribution<uint64_t> distribution;
+
+  const size_t left_hashes_count = 13;
+  uint64_t host_left_hashes[left_hashes_count][hash_length];
+
+  for (size_t y = 0; y < left_hashes_count; y++) {
+    for (size_t x = 0; x < hash_length; x++) {
+      host_left_hashes[y][x] = distribution(rng);
+    }
+  }
+
+  uint64_t *left_hashes;
+  size_t left_hashes_pitch;
+  error = cudaMallocPitch(&left_hashes, &left_hashes_pitch,
+                          hash_length * sizeof(uint64_t), left_hashes_count);
+  assert(error == cudaSuccess);
+
+  error = cudaMemcpy2D(left_hashes, left_hashes_pitch, host_left_hashes,
+                       hash_length * sizeof(uint64_t),
+                       hash_length * sizeof(uint64_t), left_hashes_count,
+                       cudaMemcpyHostToDevice);
+  assert(error == cudaSuccess);
+
+  const size_t right_hashes_count = 37;
+  uint64_t host_right_hashes[right_hashes_count][hash_length];
+
+  for (size_t y = 0; y < right_hashes_count; y++) {
+    for (size_t x = 0; x < hash_length; x++) {
+      host_right_hashes[y][x] = distribution(rng);
+    }
+  }
+
+  uint64_t *right_hashes;
+  size_t right_hashes_pitch;
+  error = cudaMallocPitch(&right_hashes, &right_hashes_pitch,
+                          hash_length * sizeof(uint64_t), right_hashes_count);
+  assert(error == cudaSuccess);
+
+  error = cudaMemcpy2D(right_hashes, right_hashes_pitch, host_right_hashes,
+                       hash_length * sizeof(uint64_t),
+                       hash_length * sizeof(uint64_t), right_hashes_count,
+                       cudaMemcpyHostToDevice);
+  assert(error == cudaSuccess);
+
+  uint16_t expectation[left_hashes_count][right_hashes_count];
+
+  for (size_t y = 0; y < left_hashes_count; y++) {
+    for (size_t x = 0; x < right_hashes_count; x++) {
+      expectation[y][x] = 0;
+
+      for (size_t i = 0; i < hash_length; i++) {
+        expectation[y][x] +=
+            std::popcount(host_left_hashes[y][i] ^ host_right_hashes[x][i]);
+      }
+    }
+  }
+
+  uint16_t *distances;
+  size_t distances_pitch;
+  error = caracal::ComputeHashDistances(
+      &distances, &distances_pitch, left_hashes, left_hashes_count,
+      left_hashes_pitch, right_hashes, right_hashes_count, right_hashes_pitch,
+      hash_length);
+  assert(error == cudaSuccess);
+
+  cudaFree(left_hashes);
+  cudaFree(right_hashes);
+
+  uint16_t host_distances[left_hashes_count][right_hashes_count];
+  error = cudaMemcpy2D(host_distances, right_hashes_count * sizeof(uint16_t),
+                       distances, distances_pitch,
+                       right_hashes_count * sizeof(uint16_t), left_hashes_count,
+                       cudaMemcpyDeviceToHost);
+  assert(error == cudaSuccess);
+
+  cudaFree(distances);
+
+  assert(memcmp(host_distances, expectation, sizeof(expectation)) == 0);
 }
 
 int main(void) {
   ComputeDotsTest();
   ConvertDotsToBitsTest();
   ComputeHashesTest();
+  ComputeHashDistancesTest();
   return 0;
 }

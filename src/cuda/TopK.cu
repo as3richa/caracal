@@ -127,6 +127,10 @@ ComputePrefixSumsAndThresholdsKernel(unsigned int *histograms,
   // FIXME: wrong alignment
   __shared__ unsigned int block_histogram[histogram_size + 1];
 
+  for (size_t i = 0; i < block_histogram_steps; i++) {
+    block_histogram[threadIdx.x + i * block_size] = 0;
+  }
+
   const size_t batch = blockIdx.y;
   unsigned int *histogram =
       histograms + batch * (histograms_pitch / sizeof(unsigned int));
@@ -173,12 +177,6 @@ SelectKernel(size_t *results, size_t results_pitch, uint16_t *values,
 
   size_t *result = results + batch * (results_pitch / sizeof(size_t));
 
-  if (truncated_value > histogram_size) {
-    for (size_t x = 0; x < k; x++) {
-      result[x] = 0x10101010101010LLU;
-    }
-  }
-
   if (truncated_value < threshold) {
     unsigned int j = atomicAdd(&histogram[truncated_value], 1);
     result[j] = i;
@@ -221,12 +219,13 @@ cudaError_t TopK(size_t **results, size_t *results_pitch, uint16_t *values,
   size_t histograms_pitch;
   error = cudaMallocPitch(&histograms, &histograms_pitch,
                           (histogram_size + 1) * sizeof(unsigned int), batches);
-
   if (error != cudaSuccess) {
     cudaFree(*results);
     cudaFree(thresholds);
     return error;
   }
+  error = cudaMemset2D(histograms, histograms_pitch, 0,
+                       (histogram_size + 1) * sizeof(unsigned int), batches);
 
   dim3 block(block_size);
   dim3 grid((count + block.x - 1) / block.x, batches);
@@ -259,15 +258,17 @@ cudaError_t TopK(size_t **results, size_t *results_pitch, uint16_t *values,
   }
 
   unsigned int *host_histograms = (unsigned int *)malloc(
-      (histogram_size + 1) * batches * sizeof(unsigned int));
-  cudaMemcpy2D(host_histograms, (histogram_size + 1) * sizeof(unsigned int),
-               histograms, histograms_pitch,
-               (histogram_size + 1) * sizeof(unsigned int), batches,
-               cudaMemcpyDeviceToHost);
+      batches * (histogram_size + 1) * sizeof(unsigned int));
+  error = cudaMemcpy2D(
+      host_histograms, (histogram_size + 1) * sizeof(unsigned int), histograms,
+      histograms_pitch, (histogram_size + 1) * sizeof(unsigned int), batches,
+      cudaMemcpyDeviceToHost);
+  assert(error == cudaSuccess);
 
   uint16_t *host_thresholds = (uint16_t *)malloc(sizeof(uint16_t) * batches);
-  cudaMemcpy(host_thresholds, thresholds, sizeof(uint16_t) * batches,
-             cudaMemcpyDeviceToHost);
+  error = cudaMemcpy(host_thresholds, thresholds, sizeof(uint16_t) * batches,
+                     cudaMemcpyDeviceToHost);
+  assert(error == cudaSuccess);
 
   for (size_t y = 0; y < batches; y++) {
     unsigned int *host_histogram = host_histograms + y * (histogram_size + 1);

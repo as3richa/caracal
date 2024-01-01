@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -std=c++20 -Wall -Wextra -pedantic -O3 -g
+CXXFLAGS := -std=c++20 -Wall -Wextra -pedantic
 
 CUDA_CXX := nvcc
 CUDA_CXXFLAGS :=

@@ -105,12 +105,10 @@ cudaError_t ComputeHashes(uint64_t **hashes, size_t *hashes_pitch,
   return cudaSuccess;
 }
 
-__global__ static void
-ComputeHashDistancesKernel(uint16_t *distances, size_t distances_pitch,
-                           uint64_t *left_hashes, size_t left_hashes_count,
-                           size_t left_hashes_pitch, uint64_t *right_hashes,
-                           size_t right_hashes_count, size_t right_hashes_pitch,
-                           size_t hash_length, size_t thread_count) {
+__global__ static void ComputeHashDistancesKernel(
+    uint16_t *distances, size_t distances_pitch, uint64_t *left_hashes,
+    size_t left_hashes_count, size_t left_hashes_pitch, uint64_t *right_hashes,
+    size_t right_hashes_count, size_t right_hashes_pitch, size_t hash_length) {
   extern __shared__ uint64_t shared_memory[];
   uint64_t *cached_left_hashes = shared_memory;
   uint64_t *cached_right_hashes = shared_memory + hash_length * blockDim.y;
@@ -129,7 +127,7 @@ ComputeHashDistancesKernel(uint16_t *distances, size_t distances_pitch,
         left_hashes + left_hash_i * (left_hashes_pitch / sizeof(uint64_t));
 
 #pragma unroll
-    for (size_t i = threadIdx.x; i < hash_length; i += thread_count) {
+    for (size_t i = threadIdx.x; i < hash_length; i += blockDim.x) {
       cached_left_hash[i] = left_hash[i];
     }
   }
@@ -141,7 +139,7 @@ ComputeHashDistancesKernel(uint16_t *distances, size_t distances_pitch,
         right_hashes + right_hash_i * (right_hashes_pitch / sizeof(uint64_t));
 
 #pragma unroll
-    for (size_t i = threadIdx.x; i < hash_length; i += thread_count) {
+    for (size_t i = threadIdx.x; i < hash_length; i += blockDim.x) {
       cached_right_hash[i] = right_hash[i];
     }
   }
@@ -151,15 +149,15 @@ ComputeHashDistancesKernel(uint16_t *distances, size_t distances_pitch,
   unsigned int partial_distance = 0;
 
 #pragma unroll
-  for (size_t i = threadIdx.x; i < hash_length; i += thread_count) {
+  for (size_t i = threadIdx.x; i < hash_length; i += blockDim.x) {
     partial_distance += __popcll(cached_left_hash[i] ^ cached_right_hash[i]);
   }
 
 #define PARTIAL_DISTANCE_SHUFFLE(delta)                                        \
   do {                                                                         \
-    if (thread_count >= (2 * delta)) {                                         \
+    if (blockDim.x >= (2 * delta)) {                                           \
       partial_distance +=                                                      \
-          __shfl_down_sync(0xffffffff, partial_distance, delta, thread_count); \
+          __shfl_down_sync(0xffffffff, partial_distance, delta, blockDim.x);   \
     }                                                                          \
   } while (0)
 
@@ -227,7 +225,7 @@ cudaError_t ComputeHashDistances(
   ComputeHashDistancesKernel<<<grid, block, shared_memory_size>>>(
       *distances, *distances_pitch, left_hashes, left_hashes_count,
       left_hashes_pitch, right_hashes, right_hashes_count, right_hashes_pitch,
-      hash_length, thread_count);
+      hash_length);
   error = cudaGetLastError();
   if (error != cudaSuccess) {
     cudaFree(*distances);

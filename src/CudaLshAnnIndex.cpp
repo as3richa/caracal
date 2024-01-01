@@ -90,7 +90,7 @@ void CudaLshAnnIndex::Query(size_t *results, size_t count, const float *vectors,
   size_t *device_results;
   size_t results_pitch;
   checkCudaErrors(TopK(&device_results, &results_pitch, distances, this->count,
-                       count, distances_pitch, 12 /* FIXME: ??? */, neighbors));
+                       count, distances_pitch, 10 /* FIXME: ??? */, neighbors));
   checkCudaErrors(cudaMemcpy2D(
       results, neighbors * sizeof(size_t), device_results, results_pitch,
       neighbors * sizeof(size_t), count, cudaMemcpyDeviceToHost));

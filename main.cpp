@@ -8,7 +8,7 @@
 int main(void) {
   const size_t dimensions = 2;
   const size_t count = 16;
-  const size_t hash_bits = 50;
+  const size_t hash_bits = 512;
   const uint64_t seed = 1337;
 
   std::vector<float> vectors(count * dimensions);

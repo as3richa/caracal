@@ -8,7 +8,8 @@
 
 namespace caracal {
 
-cudaError_t TopK(size_t *result, const uint16_t *distances, size_t count,
+cudaError_t TopK(size_t **results, size_t *results_pitch, uint16_t *values,
+                 size_t count, size_t batches, size_t values_pitch, size_t bits,
                  size_t k);
 
 }

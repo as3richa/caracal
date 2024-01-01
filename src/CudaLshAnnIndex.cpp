@@ -69,9 +69,9 @@ void CudaLshAnnIndex::Query(size_t *results, size_t count, const float *vectors,
   size_t vectors_pitch;
   checkCudaErrors(cudaMallocPitch((void **)&device_vectors, &vectors_pitch,
                                   dimensions * sizeof(float), count));
-  cudaMemcpy2D(device_vectors, vectors_pitch, vectors,
-               dimensions * sizeof(float), dimensions * sizeof(float), count,
-               cudaMemcpyHostToDevice);
+  checkCudaErrors(cudaMemcpy2D(
+      device_vectors, vectors_pitch, vectors, dimensions * sizeof(float),
+      dimensions * sizeof(float), count, cudaMemcpyHostToDevice));
 
   uint64_t *hashes;
   size_t hashes_pitch;
@@ -79,15 +79,25 @@ void CudaLshAnnIndex::Query(size_t *results, size_t count, const float *vectors,
                                 device_vectors, count, vectors_pitch, planes,
                                 hash_bits, planes_pitch, dimensions));
 
+  cudaFree(device_vectors);
+
   uint16_t *distances;
   size_t distances_pitch;
   checkCudaErrors(ComputeHashDistances(
       &distances, &distances_pitch, hashes, count, hashes_pitch, this->hashes,
       this->count, this->hashes_pitch, (hash_bits + 63) / 64 /* FIXME */));
 
-  // FIXME
-  assert(count == 1);
-  checkCudaErrors(TopK(results, distances, this->count, neighbors));
+  size_t *device_results;
+  size_t results_pitch;
+  checkCudaErrors(TopK(&device_results, &results_pitch, distances, this->count,
+                       count, distances_pitch, 12 /* FIXME: ??? */, neighbors));
+  checkCudaErrors(cudaMemcpy2D(
+      results, neighbors * sizeof(size_t), device_results, results_pitch,
+      neighbors * sizeof(size_t), count, cudaMemcpyDeviceToHost));
+
+  cudaFree(hashes);
+  cudaFree(distances);
+  cudaFree(device_results);
 }
 
 } // namespace caracal

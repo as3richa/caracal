@@ -83,7 +83,7 @@ void ComputeGroundTruth(std::string ground_truth_path, std::string base_path,
   printf("Building index\n");
   caracal::FlatAnnIndex index(dimensions, base_count, base_data.data());
 
-  printf("Reading query vectors from %s\n", base_path.c_str());
+  printf("Reading query vectors from %s\n", query_path.c_str());
   std::vector<float> query_data;
   size_t query_dimensions;
   size_t query_count;

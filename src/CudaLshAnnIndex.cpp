@@ -84,8 +84,8 @@ void CudaLshAnnIndex::Query(size_t *results, size_t count, const float *vectors,
   uint16_t *distances;
   size_t distances_pitch;
   checkCudaErrors(ComputeHashDistances(
-      &distances, &distances_pitch, hashes, count, hashes_pitch, this->hashes,
-      this->count, this->hashes_pitch, (hash_bits + 63) / 64 /* FIXME */));
+      &distances, &distances_pitch, this->hashes,
+      this->count, this->hashes_pitch,hashes, count, hashes_pitch,  (hash_bits + 63) / 64 /* FIXME */));
 
   size_t *device_results;
   size_t results_pitch;

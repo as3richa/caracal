@@ -3,6 +3,7 @@
 
 #include <cublas_v2.h>
 
+#include <cstdio>
 namespace caracal {
 
 cudaError_t ComputeDots(float **dots, size_t *dots_pitch,
@@ -217,8 +218,12 @@ cudaError_t ComputeHashDistances(
 
   const size_t shared_memory_size =
       sizeof(uint64_t) * (left_block_size + right_block_size) * hash_length;
+  
+  printf("%d %d %d\n", thread_count, left_block_size, right_block_size);
 
   dim3 block(thread_count, left_block_size, right_block_size);
+  printf("%d %d %d\n", 1, (left_hashes_count + block.y - 1) / block.y,
+            (right_hashes_count + block.z - 1) / block.z);
   dim3 grid(1, (left_hashes_count + block.y - 1) / block.y,
             (right_hashes_count + block.z - 1) / block.z);
 

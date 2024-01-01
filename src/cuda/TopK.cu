@@ -256,7 +256,7 @@ cudaError_t TopK(size_t **results, size_t *results_pitch, uint16_t *values,
     cudaFree(histograms);
     return error;
   }
-
+/*
   unsigned int *host_histograms = (unsigned int *)malloc(
       batches * (histogram_size + 1) * sizeof(unsigned int));
   error = cudaMemcpy2D(
@@ -288,6 +288,7 @@ cudaError_t TopK(size_t **results, size_t *results_pitch, uint16_t *values,
     assert(host_histogram[host_thresholds[y]] < k &&
            k <= host_histogram[host_thresholds[y] + 1]);
   }
+  */
 
   if (bits > histogram_bits) {
     SelectKernel<true><<<grid, block>>>(

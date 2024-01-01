@@ -29,7 +29,7 @@ void FlatAnnIndex::Query(size_t *results, size_t count, const float *vectors,
       }
     }
 
-    size_t *result = results + i * dimensions;
+    size_t *result = results + i * neighbors;
     size_t result_count = std::min(neighbors, this->count);
 
     for (size_t i = 0; i < result_count; i++) {

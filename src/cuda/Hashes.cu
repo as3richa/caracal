@@ -105,79 +105,74 @@ cudaError_t ComputeHashes(uint64_t **hashes, size_t *hashes_pitch,
   return cudaSuccess;
 }
 
-template <size_t max_hash_length, size_t left_block_size,
-          size_t right_block_size>
-__global__ static void ComputeHashDistancesKernel(
-    uint16_t *distances, size_t distances_pitch, uint64_t *left_hashes,
-    size_t left_hashes_count, size_t left_hashes_pitch, uint64_t *right_hashes,
-    size_t right_hashes_count, size_t right_hashes_pitch, size_t hash_length) {
-  __shared__ uint64_t cached_left_hashes[left_block_size][max_hash_length];
-  __shared__ uint64_t cached_right_hashes[right_block_size][max_hash_length];
-  __shared__ uint16_t
-      partial_distances[left_block_size][right_block_size][max_hash_length];
+__global__ static void
+ComputeHashDistancesKernel(uint16_t *distances, size_t distances_pitch,
+                           uint64_t *left_hashes, size_t left_hashes_count,
+                           size_t left_hashes_pitch, uint64_t *right_hashes,
+                           size_t right_hashes_count, size_t right_hashes_pitch,
+                           size_t hash_length, size_t thread_count) {
+  extern __shared__ uint64_t shared_memory[];
+  uint64_t *cached_left_hashes = shared_memory;
+  uint64_t *cached_right_hashes = shared_memory + hash_length * blockDim.y;
 
-  const size_t offset = threadIdx.x;
-  const size_t left_hash = threadIdx.y + blockIdx.y * left_block_size;
-  const size_t right_hash = threadIdx.z + blockIdx.z * right_block_size;
-  if (offset >= hash_length || left_hash >= left_hashes_count ||
-      right_hash >= right_hashes_count) {
+  const size_t left_hash_i = threadIdx.y + blockIdx.y * blockDim.y;
+  const size_t right_hash_i = threadIdx.z + blockIdx.z * blockDim.z;
+
+  if (left_hash_i >= left_hashes_count || right_hash_i >= right_hashes_count) {
     return;
   }
 
+  uint64_t *cached_left_hash = cached_left_hashes + threadIdx.y * hash_length;
+
   if (threadIdx.z == 0) {
-    const size_t left_i =
-        offset + left_hash * (left_hashes_pitch / sizeof(uint64_t));
-    cached_left_hashes[threadIdx.y][offset] = left_hashes[left_i];
+    const uint64_t *left_hash =
+        left_hashes + left_hash_i * (left_hashes_pitch / sizeof(uint64_t));
+
+#pragma unroll
+    for (size_t i = threadIdx.x; i < hash_length; i += thread_count) {
+      cached_left_hash[i] = left_hash[i];
+    }
   }
+
+  uint64_t *cached_right_hash = cached_right_hashes + threadIdx.z * hash_length;
 
   if (threadIdx.y == 0) {
-    const size_t right_i =
-        offset + right_hash * (right_hashes_pitch / sizeof(uint64_t));
-    cached_right_hashes[threadIdx.z][offset] = right_hashes[right_i];
+    const uint64_t *right_hash =
+        right_hashes + right_hash_i * (right_hashes_pitch / sizeof(uint64_t));
+
+#pragma unroll
+    for (size_t i = threadIdx.x; i < hash_length; i += thread_count) {
+      cached_right_hash[i] = right_hash[i];
+    }
   }
 
   __syncthreads();
 
-  uint16_t *q = &partial_distances[threadIdx.y][threadIdx.z][offset];
+  unsigned int partial_distance = 0;
 
-  *q = __popcll(cached_left_hashes[threadIdx.y][offset] ^
-                cached_right_hashes[threadIdx.z][offset]);
+#pragma unroll
+  for (size_t i = threadIdx.x; i < hash_length; i += thread_count) {
+    partial_distance += __popcll(cached_left_hash[i] ^ cached_right_hash[i]);
+  }
 
-  __syncthreads();
-
-#define UNROLLED_INTERLEAVED_ADDRESSING_SUM(delta)                             \
+#define PARTIAL_DISTANCE_SHUFFLE(delta)                                        \
   do {                                                                         \
-    if (max_hash_length > delta) {                                             \
-      if (offset % (2 * delta) == 0 && offset + delta < hash_length) {         \
-        *q += *(q + delta);                                                    \
-      }                                                                        \
-      __syncthreads();                                                         \
+    if (thread_count >= (2 * delta)) {                                         \
+      partial_distance +=                                                      \
+          __shfl_down_sync(0xffffffff, partial_distance, delta, thread_count); \
     }                                                                          \
   } while (0)
 
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(1);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(2);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(4);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(8);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(16);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(32);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(64);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(128);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(256);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(512);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(1024);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(2048);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(4096);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(8192);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(16384);
-  UNROLLED_INTERLEAVED_ADDRESSING_SUM(32768);
+  PARTIAL_DISTANCE_SHUFFLE(2);
+  PARTIAL_DISTANCE_SHUFFLE(1);
 
-#undef UNROLLED_INTERLEAVED_ADDRESSING_SUM
+#undef PARTIAL_DISTANCE_SHUFFLE
 
-  if (offset == 0) {
-    const size_t distances_i =
-        right_hash + left_hash * (distances_pitch / sizeof(uint16_t));
-    distances[distances_i] = *q;
+  if (threadIdx.x == 0) {
+    uint16_t *distance = distances +
+                         left_hash_i * (distances_pitch / sizeof(uint16_t)) +
+                         right_hash_i;
+    *distance = partial_distance;
   }
 }
 
@@ -188,39 +183,51 @@ cudaError_t ComputeHashDistances(
   cudaError_t error;
 
   error =
-      cudaMallocPitch((void **)distances, distances_pitch, right_hashes_count,
-                      left_hashes_count * sizeof(uint16_t));
+      cudaMallocPitch((void **)distances, distances_pitch,
+                      right_hashes_count * sizeof(uint16_t), left_hashes_count);
   if (error != cudaSuccess) {
     return error;
   }
 
-#define SELECT_KERNEL_FOR_HASH_LENGTH(max_hash_length, left_block_size,        \
-                                      right_block_size)                        \
-  else if (hash_length < max_hash_length) {                                    \
-    dim3 block(hash_length, left_block_size, right_block_size);                \
-    dim3 grid(hash_length, (left_hashes_count + block.x - 1) / block.x,        \
-              (right_hashes_count + block.y - 1) / block.y);                   \
-    ComputeHashDistancesKernel<max_hash_length, left_block_size,               \
-                               right_block_size><<<grid, block>>>(             \
-        *distances, *distances_pitch, left_hashes, left_hashes_count,          \
-        left_hashes_pitch, right_hashes, right_hashes_count,                   \
-        right_hashes_pitch, hash_length);                                      \
+  size_t thread_count;
+  if (hash_length >= 4) {
+    thread_count = 4;
+  } else if (hash_length >= 2) {
+    thread_count = 2;
+  } else {
+    thread_count = 1;
   }
 
-  {
-    if (false) {
+  size_t right_block_size;
+  size_t left_block_size;
+
+  if (right_hashes_count >= 32 && thread_count == 1) {
+    left_block_size = right_block_size = 32;
+  } else {
+    if (right_hashes_count >= 8) {
+      right_block_size = 8;
+    } else if (right_hashes_count >= 4) {
+      right_block_size = 4;
+    } else if (right_hashes_count >= 2) {
+      right_block_size = 2;
+    } else {
+      right_block_size = 1;
     }
-    SELECT_KERNEL_FOR_HASH_LENGTH(8, 8, 16)
-    SELECT_KERNEL_FOR_HASH_LENGTH(16, 8, 8)
-    SELECT_KERNEL_FOR_HASH_LENGTH(32, 4, 8)
-    SELECT_KERNEL_FOR_HASH_LENGTH(64, 4, 4)
-    SELECT_KERNEL_FOR_HASH_LENGTH(128, 2, 4)
-    SELECT_KERNEL_FOR_HASH_LENGTH(256, 2, 2)
-    SELECT_KERNEL_FOR_HASH_LENGTH(512, 1, 2)
-    SELECT_KERNEL_FOR_HASH_LENGTH(1024, 1, 1)
+
+    left_block_size = 1024 / right_block_size / thread_count;
   }
 
-#undef SELECT_KERNEL_FOR_HASH_LENGTH
+  const size_t shared_memory_size =
+      sizeof(uint64_t) * (left_block_size + right_block_size) * hash_length;
+
+  dim3 block(thread_count, left_block_size, right_block_size);
+  dim3 grid(1, (left_hashes_count + block.y - 1) / block.y,
+            (right_hashes_count + block.z - 1) / block.z);
+
+  ComputeHashDistancesKernel<<<grid, block, shared_memory_size>>>(
+      *distances, *distances_pitch, left_hashes, left_hashes_count,
+      left_hashes_pitch, right_hashes, right_hashes_count, right_hashes_pitch,
+      hash_length, thread_count);
   error = cudaGetLastError();
   if (error != cudaSuccess) {
     cudaFree(*distances);

@@ -9,7 +9,9 @@ class FlatAnnIndex {
 public:
   FlatAnnIndex(size_t dimensions, size_t count, const float *vectors);
 
-  void Query(size_t *results, size_t count, const float *vectors,
+  void Query(size_t *results,
+             size_t count,
+             const float *vectors,
              size_t neighbors) const;
 
   float CosineDistance(const float *left, const float *right) const;

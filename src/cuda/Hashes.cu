@@ -3,113 +3,103 @@
 
 #include <cublas_v2.h>
 
-#include <cstdio>
+#include "DevicePointer.h"
+
 namespace caracal {
 
-cudaError_t ComputeDots(float **dots, size_t *dots_pitch,
-                        cublasHandle_t cublas_handle, float *vectors,
-                        size_t vectors_count, size_t vectors_pitch,
-                        float *planes, size_t planes_count, size_t planes_pitch,
-                        size_t dimensions) {
-  cudaError_t error;
-
+void ComputeDots(PitchedView<float> dots,
+                 cublasHandle_t cublas_handle,
+                 ConstPitchedView<float> vectors,
+                 size_t vectors_count,
+                 ConstPitchedView<float> planes,
+                 size_t planes_count,
+                 size_t dimensions) {
   const float alpha = 1.0f;
   const float beta = 0.0f;
 
-  error = cudaMallocPitch((void **)dots, dots_pitch,
-                          planes_count * sizeof(float), vectors_count);
-  if (error != cudaSuccess) {
-    return error;
-  }
-
-  const cublasStatus_t status = cublasSgemm(
-      cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, planes_count, vectors_count,
-      dimensions, &alpha, planes, planes_pitch / sizeof(float), vectors,
-      vectors_pitch / sizeof(float), &beta, *dots, *dots_pitch / sizeof(float));
+  const cublasStatus_t status = cublasSgemm(cublas_handle,
+                                            CUBLAS_OP_T,
+                                            CUBLAS_OP_N,
+                                            planes_count,
+                                            vectors_count,
+                                            dimensions,
+                                            &alpha,
+                                            planes.Ptr(),
+                                            planes.Pitch() / sizeof(float),
+                                            vectors.Ptr(),
+                                            vectors.Pitch() / sizeof(float),
+                                            &beta,
+                                            dots.Ptr(),
+                                            dots.Pitch() / sizeof(float));
   if (status != CUBLAS_STATUS_SUCCESS) {
-    cudaFree(dots);
-    return cudaErrorUnknown;
+    // FIXME: ???
+    CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(cudaErrorUnknown);
   }
-
-  return cudaSuccess;
 }
 
-__global__ static void ConvertDotsToBitsKernel(uint32_t *bits,
-                                               size_t bits_pitch, float *dots,
-                                               size_t height, size_t width,
-                                               size_t dots_pitch) {
+__global__ static void ConvertDotsToBitsKernel(PitchedView<uint32_t> bits,
+                                               ConstPitchedView<float> dots,
+                                               size_t width,
+                                               size_t height) {
   const size_t x = threadIdx.x + blockIdx.x * blockDim.x;
   const size_t y = threadIdx.y + blockIdx.y * blockDim.y;
+
   if (x >= width || y >= height) {
     return;
   }
 
-  const size_t dots_i = x + y * (dots_pitch / sizeof(float));
-  const uint32_t word = __ballot_sync(__activemask(), dots[dots_i] >= 0.0);
+  const uint32_t word = __ballot_sync(__activemask(), dots[y][x] >= 0.0);
 
   if (threadIdx.x % 32 == 0) {
-    const size_t bits_i = (x / 32) + y * (bits_pitch / sizeof(uint32_t));
-    bits[bits_i] = word;
+    bits[y][x / 32] = word;
   }
 }
 
-cudaError_t ConvertDotsToBits(uint64_t **bits, size_t *bits_pitch, float *dots,
-                              size_t height, size_t width, size_t dots_pitch) {
-  cudaError_t error;
-
-  error = cudaMallocPitch((void **)bits, bits_pitch,
-                          ((width + 64 - 1) / 64) * sizeof(uint64_t), height);
-  if (error != cudaSuccess) {
-    return error;
-  }
-
+void ConvertDotsToBits(PitchedView<uint64_t> bits,
+                       ConstPitchedView<float> dots,
+                       size_t width,
+                       size_t height) {
   const dim3 block(64, 16, 1);
-  const dim3 grid((width + block.x - 1) / block.x,
-                  (height + block.y - 1) / block.y, 1);
+  const dim3 grid(
+      (2 * width + block.x - 1) / block.x, (height + block.y - 1) / block.y, 1);
 
-  ConvertDotsToBitsKernel<<<grid, block>>>((uint32_t *)*bits, *bits_pitch, dots,
-                                           height, width, dots_pitch);
-  error = cudaGetLastError();
+  ConvertDotsToBitsKernel<<<grid, block>>>(
+      static_cast<PitchedView<uint32_t>>(bits), dots, width, height);
+  const cudaError_t error = cudaGetLastError();
   if (error != cudaSuccess) {
-    cudaFree(*bits);
-    return error;
+    CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
   }
-
-  return cudaSuccess;
 }
 
-cudaError_t ComputeHashes(uint64_t **hashes, size_t *hashes_pitch,
-                          cublasHandle_t cublas_handle, float *vectors,
-                          size_t vectors_count, size_t vectors_pitch,
-                          float *planes, size_t planes_count,
-                          size_t planes_pitch, size_t dimensions) {
-  cudaError_t error;
+void ComputeHashes(PitchedView<uint64_t> hashes,
+                   cublasHandle_t cublas_handle,
+                   ConstPitchedView<float> vectors,
+                   size_t vectors_count,
+                   ConstPitchedView<float> planes,
+                   size_t planes_count,
+                   size_t dimensions) {
 
-  float *dots;
-  size_t dots_pitch;
+  PitchedDevicePointer<float> dots =
+      PitchedDevicePointer<float>::MallocPitch(planes_count, vectors_count);
 
-  error = ComputeDots(&dots, &dots_pitch, cublas_handle, vectors, vectors_count,
-                      vectors_pitch, planes, planes_count, planes_pitch,
-                      dimensions);
-  if (error != cudaSuccess) {
-    return error;
-  }
+  ComputeDots(dots.View(),
+              cublas_handle,
+              vectors,
+              vectors_count,
+              planes,
+              planes_count,
+              dimensions);
 
-  error = ConvertDotsToBits(hashes, hashes_pitch, dots, vectors_count,
-                            planes_count, dots_pitch);
-  if (error != cudaSuccess) {
-    cudaFree(dots);
-    return error;
-  }
-
-  cudaFree(dots);
-  return cudaSuccess;
+  ConvertDotsToBits(hashes, dots.ConstView(), planes_count, vectors_count);
 }
 
-__global__ static void ComputeHashDistancesKernel(
-    uint16_t *distances, size_t distances_pitch, uint64_t *left_hashes,
-    size_t left_hashes_count, size_t left_hashes_pitch, uint64_t *right_hashes,
-    size_t right_hashes_count, size_t right_hashes_pitch, size_t hash_length) {
+__global__ static void
+ComputeHashDistancesKernel(PitchedView<uint16_t> distances,
+                           ConstPitchedView<uint64_t> left_hashes,
+                           size_t left_hashes_count,
+                           ConstPitchedView<uint64_t> right_hashes,
+                           size_t right_hashes_count,
+                           size_t hash_length) {
   extern __shared__ uint64_t shared_memory[];
   uint64_t *cached_left_hashes = shared_memory;
   uint64_t *cached_right_hashes = shared_memory + hash_length * blockDim.y;
@@ -124,8 +114,7 @@ __global__ static void ComputeHashDistancesKernel(
   uint64_t *cached_left_hash = cached_left_hashes + threadIdx.y * hash_length;
 
   if (threadIdx.z == 0) {
-    const uint64_t *left_hash =
-        left_hashes + left_hash_i * (left_hashes_pitch / sizeof(uint64_t));
+    const uint64_t *left_hash = left_hashes[left_hash_i];
 
 #pragma unroll
     for (size_t i = threadIdx.x; i < hash_length; i += blockDim.x) {
@@ -136,8 +125,7 @@ __global__ static void ComputeHashDistancesKernel(
   uint64_t *cached_right_hash = cached_right_hashes + threadIdx.z * hash_length;
 
   if (threadIdx.y == 0) {
-    const uint64_t *right_hash =
-        right_hashes + right_hash_i * (right_hashes_pitch / sizeof(uint64_t));
+    const uint64_t *right_hash = right_hashes[right_hash_i];
 
 #pragma unroll
     for (size_t i = threadIdx.x; i < hash_length; i += blockDim.x) {
@@ -154,40 +142,27 @@ __global__ static void ComputeHashDistancesKernel(
     partial_distance += __popcll(cached_left_hash[i] ^ cached_right_hash[i]);
   }
 
-#define PARTIAL_DISTANCE_SHUFFLE(delta)                                        \
-  do {                                                                         \
-    if (blockDim.x >= (2 * delta)) {                                           \
-      partial_distance +=                                                      \
-          __shfl_down_sync(0xffffffff, partial_distance, delta, blockDim.x);   \
-    }                                                                          \
-  } while (0)
+  if (blockDim.x >= 4) {
+    partial_distance +=
+        __shfl_down_sync(0xffffffff, partial_distance, 2, blockDim.x);
+  }
 
-  PARTIAL_DISTANCE_SHUFFLE(2);
-  PARTIAL_DISTANCE_SHUFFLE(1);
-
-#undef PARTIAL_DISTANCE_SHUFFLE
+  if (blockDim.x >= 2) {
+    partial_distance +=
+        __shfl_down_sync(0xffffffff, partial_distance, 1, blockDim.x);
+  }
 
   if (threadIdx.x == 0) {
-    uint16_t *distance = distances +
-                         left_hash_i * (distances_pitch / sizeof(uint16_t)) +
-                         right_hash_i;
-    *distance = partial_distance;
+    distances[left_hash_i][right_hash_i] += partial_distance;
   }
 }
 
-cudaError_t ComputeHashDistances(
-    uint16_t **distances, size_t *distances_pitch, uint64_t *left_hashes,
-    size_t left_hashes_count, size_t left_hashes_pitch, uint64_t *right_hashes,
-    size_t right_hashes_count, size_t right_hashes_pitch, size_t hash_length) {
-  cudaError_t error;
-
-  error =
-      cudaMallocPitch((void **)distances, distances_pitch,
-                      right_hashes_count * sizeof(uint16_t), left_hashes_count);
-  if (error != cudaSuccess) {
-    return error;
-  }
-
+void ComputeHashDistances(PitchedView<uint16_t> distances,
+                          ConstPitchedView<uint64_t> left_hashes,
+                          size_t left_hashes_count,
+                          ConstPitchedView<uint64_t> right_hashes,
+                          size_t right_hashes_count,
+                          size_t hash_length) {
   size_t thread_count;
   if (hash_length >= 4) {
     thread_count = 4;
@@ -218,26 +193,21 @@ cudaError_t ComputeHashDistances(
 
   const size_t shared_memory_size =
       sizeof(uint64_t) * (left_block_size + right_block_size) * hash_length;
-  
-  printf("%d %d %d\n", thread_count, left_block_size, right_block_size);
 
   dim3 block(thread_count, left_block_size, right_block_size);
-  printf("%d %d %d\n", 1, (left_hashes_count + block.y - 1) / block.y,
-            (right_hashes_count + block.z - 1) / block.z);
-  dim3 grid(1, (left_hashes_count + block.y - 1) / block.y,
+  dim3 grid(1,
+            (left_hashes_count + block.y - 1) / block.y,
             (right_hashes_count + block.z - 1) / block.z);
 
   ComputeHashDistancesKernel<<<grid, block, shared_memory_size>>>(
-      *distances, *distances_pitch, left_hashes, left_hashes_count,
-      left_hashes_pitch, right_hashes, right_hashes_count, right_hashes_pitch,
+      distances,
+      left_hashes,
+      left_hashes_count,
+      right_hashes,
+      right_hashes_count,
       hash_length);
-  error = cudaGetLastError();
-  if (error != cudaSuccess) {
-    cudaFree(*distances);
-    return error;
-  }
-
-  return cudaSuccess;
+  const cudaError_t error = cudaGetLastError();
+  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
 }
 
 } // namespace caracal

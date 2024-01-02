@@ -8,11 +8,14 @@
 
 namespace caracal {
 
-FlatAnnIndex::FlatAnnIndex(size_t dimensions, size_t count,
+FlatAnnIndex::FlatAnnIndex(size_t dimensions,
+                           size_t count,
                            const float *vectors)
     : dimensions(dimensions), count(count), vectors(vectors) {}
 
-void FlatAnnIndex::Query(size_t *results, size_t count, const float *vectors,
+void FlatAnnIndex::Query(size_t *results,
+                         size_t count,
+                         const float *vectors,
                          size_t neighbors) const {
   std::priority_queue<std::pair<float, size_t>> candidate_results;
 

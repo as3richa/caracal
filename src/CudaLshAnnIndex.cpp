@@ -7,17 +7,27 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "cuda/DevicePointer.h"
 #include "cuda/GenerateRandomPlanes.h"
 #include "cuda/Hashes.h"
 #include "cuda/TopK.h"
 
+#define CARACAL_CUDA_LSH_ANN_INDEX_SANITY_CHECKS
+
 // FIXME: this is nonsense
 template <typename T>
-void check(T result, char const *const func, const char *const file,
+void check(T result,
+           char const *const func,
+           const char *const file,
            int const line) {
   if (result) {
-    fprintf(stderr, "CUDA error at %s:%d code=%d(%s) \"%s\" \n", file, line,
-            static_cast<unsigned int>(result), cudaGetErrorName(result), func);
+    fprintf(stderr,
+            "CUDA error at %s:%d code=%d(%s) \"%s\" \n",
+            file,
+            line,
+            static_cast<unsigned int>(result),
+            cudaGetErrorName(result),
+            func);
     exit(EXIT_FAILURE);
   }
 }
@@ -25,33 +35,32 @@ void check(T result, char const *const func, const char *const file,
 
 namespace caracal {
 
-CudaLshAnnIndex::CudaLshAnnIndex(size_t dimensions, size_t count,
-                                 const float *vectors, size_t hash_bits,
+CudaLshAnnIndex::CudaLshAnnIndex(size_t dimensions,
+                                 size_t count,
+                                 const float *vectors,
+                                 size_t hash_bits,
                                  uint64_t seed)
-    : dimensions(dimensions), count(count), hash_bits(hash_bits) {
+    : dimensions(dimensions), count(count), hash_bits(hash_bits),
+      planes(PitchedDevicePointer<float>::MallocPitch(dimensions, hash_bits)),
+      hashes(PitchedDevicePointer<uint64_t>::MallocPitch((hash_bits + 63) / 64,
+                                                         count /* FIXME */)) {
   // FIXME: this is nonsense
   if (cublasCreate(&cublas_handle) != CUBLAS_STATUS_SUCCESS) {
     assert(false);
   }
 
-  checkCudaErrors(GenerateRandomPlanes(&planes, &planes_pitch, hash_bits,
-                                       dimensions, seed));
+  GenerateRandomPlanes(planes.View(), hash_bits, dimensions, seed);
 
-  {
-    float *device_vectors;
-    size_t vectors_pitch;
-    checkCudaErrors(cudaMallocPitch((void **)&device_vectors, &vectors_pitch,
-                                    dimensions * sizeof(float), count));
-    cudaMemcpy2D(device_vectors, vectors_pitch, vectors,
-                 dimensions * sizeof(float), dimensions * sizeof(float), count,
-                 cudaMemcpyHostToDevice);
+  PitchedDevicePointer<float> device_vectors =
+      PitchedDevicePointer<float>::MemcpyPitch(vectors, dimensions, count);
 
-    checkCudaErrors(ComputeHashes(&hashes, &hashes_pitch, cublas_handle,
-                                  device_vectors, count, vectors_pitch, planes,
-                                  hash_bits, planes_pitch, dimensions));
-
-    cudaFree(device_vectors);
-  }
+  ComputeHashes(hashes.View(),
+                cublas_handle,
+                device_vectors.ConstView(),
+                count,
+                planes.ConstView(),
+                hash_bits,
+                dimensions);
 }
 
 CudaLshAnnIndex::~CudaLshAnnIndex() {
@@ -59,45 +68,74 @@ CudaLshAnnIndex::~CudaLshAnnIndex() {
   if (cublasDestroy(cublas_handle) != CUBLAS_STATUS_SUCCESS) {
     assert(false);
   }
-  checkCudaErrors(cudaFree(planes));
-  checkCudaErrors(cudaFree(hashes));
 }
 
-void CudaLshAnnIndex::Query(size_t *results, size_t count, const float *vectors,
+void CudaLshAnnIndex::Query(size_t *results,
+                            size_t count,
+                            const float *vectors,
                             size_t neighbors) const {
-  float *device_vectors;
-  size_t vectors_pitch;
-  checkCudaErrors(cudaMallocPitch((void **)&device_vectors, &vectors_pitch,
-                                  dimensions * sizeof(float), count));
-  checkCudaErrors(cudaMemcpy2D(
-      device_vectors, vectors_pitch, vectors, dimensions * sizeof(float),
-      dimensions * sizeof(float), count, cudaMemcpyHostToDevice));
+  PitchedDevicePointer<size_t> device_results =
+      PitchedDevicePointer<size_t>::MallocPitch(neighbors, count);
 
-  uint64_t *hashes;
-  size_t hashes_pitch;
-  checkCudaErrors(ComputeHashes(&hashes, &hashes_pitch, cublas_handle,
-                                device_vectors, count, vectors_pitch, planes,
-                                hash_bits, planes_pitch, dimensions));
+  {
+    PitchedDevicePointer<uint16_t> distances =
+        PitchedDevicePointer<uint16_t>::MallocPitch(count, this->count);
 
-  cudaFree(device_vectors);
+    {
+      // FIXME
+      PitchedDevicePointer<uint64_t> hashes =
+          PitchedDevicePointer<uint64_t>::MallocPitch((hash_bits + 63) / 64,
+                                                      count);
 
-  uint16_t *distances;
-  size_t distances_pitch;
-  checkCudaErrors(ComputeHashDistances(
-      &distances, &distances_pitch, this->hashes,
-      this->count, this->hashes_pitch,hashes, count, hashes_pitch,  (hash_bits + 63) / 64 /* FIXME */));
+      {
+        PitchedDevicePointer<float> device_vectors =
+            PitchedDevicePointer<float>::MemcpyPitch(
+                vectors, dimensions, count);
 
-  size_t *device_results;
-  size_t results_pitch;
-  checkCudaErrors(TopK(&device_results, &results_pitch, distances, this->count,
-                       count, distances_pitch, 10 /* FIXME: ??? */, neighbors));
-  checkCudaErrors(cudaMemcpy2D(
-      results, neighbors * sizeof(size_t), device_results, results_pitch,
-      neighbors * sizeof(size_t), count, cudaMemcpyDeviceToHost));
+        ComputeHashes(hashes.View(),
+                      cublas_handle,
+                      device_vectors.ConstView(),
+                      count,
+                      planes.ConstView(),
+                      hash_bits,
+                      dimensions);
+      }
 
-  cudaFree(hashes);
-  cudaFree(distances);
-  cudaFree(device_results);
+      ComputeHashDistances(distances.View(),
+                           this->hashes.ConstView(),
+                           this->count,
+                           hashes.ConstView(),
+                           count,
+                           (hash_bits + 63) / 64 /* FIXME */);
+    }
+
+    // FIXME: only supports distances with up to 12 bits
+    // FIXME: actually use the view APIs
+    TopK(device_results.View().Ptr(),
+         device_results.View().Pitch(),
+         distances.ConstView().Ptr(),
+         this->count,
+         count,
+         distances.ConstView().Pitch(),
+         neighbors);
+  }
+
+  checkCudaErrors(cudaMemcpy2D(results,
+                               neighbors * sizeof(size_t),
+                               device_results.View().Ptr(),
+                               device_results.View().Pitch(),
+                               neighbors * sizeof(size_t),
+                               count,
+                               cudaMemcpyDeviceToHost));
+
+#ifdef CARACAL_CUDA_LSH_ANN_INDEX_SANITY_CHECKS
+  for (size_t y = 0; y < count; y++) {
+    const size_t *result = results + y * neighbors;
+    for (size_t x = 0; x < std::min(neighbors, this->count); x++) {
+      assert(result[x] < this->count);
+    }
+  }
+#endif
 }
 
 } // namespace caracal

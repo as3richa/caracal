@@ -6,16 +6,18 @@
 #include <string>
 #include <vector>
 
+#include "../CudaLshAnnIndex.h"
 #include "../FlatAnnIndex.h"
 #include "../LshAnnIndex.h"
-#include "../CudaLshAnnIndex.h"
 
 #undef NDEBUG
 #include <cassert>
 
 namespace caracal {
 
-void ReadFvecs(std::vector<float> &data, size_t &count, size_t &dimensions,
+void ReadFvecs(std::vector<float> &data,
+               size_t &count,
+               size_t &dimensions,
                std::string path) {
   static_assert(std::endian::native == std::endian::little);
 
@@ -53,7 +55,9 @@ void ReadFvecs(std::vector<float> &data, size_t &count, size_t &dimensions,
   fclose(file);
 }
 
-void WriteFvecs(std::string path, const std::vector<float> &data, size_t count,
+void WriteFvecs(std::string path,
+                const std::vector<float> &data,
+                size_t count,
                 size_t dimensions) {
   static_assert(std::endian::native == std::endian::little);
 
@@ -71,7 +75,8 @@ void WriteFvecs(std::string path, const std::vector<float> &data, size_t count,
   fclose(file);
 }
 
-void ComputeGroundTruth(std::string ground_truth_path, std::string base_path,
+void ComputeGroundTruth(std::string ground_truth_path,
+                        std::string base_path,
                         std::string query_path) {
 
   printf("Reading base vectors from %s\n", base_path.c_str());
@@ -104,9 +109,10 @@ void ComputeGroundTruth(std::string ground_truth_path, std::string base_path,
                              base_data.data() + (index + 1) * dimensions);
   }
   /*for (size_t i = 0 ; i < 10; i++) {
-    printf("==== %.3f\n", index.CosineDistance(&ground_truth_data[i*dimensions], &query_data[i*dimensions]));
-    for (size_t j = 0; j < dimensions; j++) {
-        printf("%.3f %.3f\n", ground_truth_data[i*dimensions +j], query_data[i*dimensions +j]);
+    printf("==== %.3f\n", index.CosineDistance(&ground_truth_data[i*dimensions],
+  &query_data[i*dimensions])); for (size_t j = 0; j < dimensions; j++) {
+        printf("%.3f %.3f\n", ground_truth_data[i*dimensions +j],
+  query_data[i*dimensions +j]);
     }
     puts("");
   }*/

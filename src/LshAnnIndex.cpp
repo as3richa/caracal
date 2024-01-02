@@ -30,8 +30,11 @@ void GenerateRandomPlane(float *plane, size_t dimensions, R &rng) {
   }
 }
 
-LshAnnIndex::LshAnnIndex(size_t dimensions, size_t count, const float *vectors,
-                         size_t hash_bits, size_t seed)
+LshAnnIndex::LshAnnIndex(size_t dimensions,
+                         size_t count,
+                         const float *vectors,
+                         size_t hash_bits,
+                         size_t seed)
     : dimensions(dimensions), count(count), hash_bits(hash_bits),
       planes(dimensions * hash_bits), hashes(HashBytes() * count) {
   std::default_random_engine rng(seed);
@@ -45,7 +48,9 @@ LshAnnIndex::LshAnnIndex(size_t dimensions, size_t count, const float *vectors,
   }
 }
 
-void LshAnnIndex::Query(size_t *results, size_t count, const float *vectors,
+void LshAnnIndex::Query(size_t *results,
+                        size_t count,
+                        const float *vectors,
                         size_t neighbors) const {
   std::vector<std::byte> hash(HashBytes());
   std::priority_queue<std::pair<size_t, size_t>> candidate_results;

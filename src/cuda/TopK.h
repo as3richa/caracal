@@ -6,11 +6,17 @@
 
 #include <cuda_runtime.h>
 
+#include "DevicePointer.h"
+
 namespace caracal {
 
-cudaError_t TopK(size_t **results, size_t *results_pitch, uint16_t *values,
-                 size_t count, size_t batches, size_t values_pitch, size_t bits,
-                 size_t k);
+void TopK(size_t *results,
+          size_t results_pitch,
+          const uint16_t *values,
+          size_t count,
+          size_t batches,
+          size_t values_pitch,
+          size_t k);
 
 }
 

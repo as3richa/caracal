@@ -1,7 +1,7 @@
 CXX := g++
-CXXFLAGS := -std=c++20 -Wall -Wextra -pedantic -O3
+CXXFLAGS := -std=c++20 -Wall -Wextra -pedantic -O0 -g
 
-CUDA_CXX := nvcc
+CUDA_CXX := nvcc -O0 -g
 CUDA_CXXFLAGS :=
 CUDA_LFLAGS := -lcublas
 
@@ -13,7 +13,7 @@ OBJ_DIR := $(BUILD_DIR)/obj
 OBJ_FILES := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(SRC_FILES))
 
 CUDA_SRC_DIR := $(SRC_DIR)/cuda
-CUDA_SRC_FILES := $(wildcard $(CUDA_SRC_DIR)/*.cu)
+CUDA_SRC_FILES := $(wildcard $(CUDA_SRC_DIR)/*.cu $(CUDA_SRC_DIR)/*.cpp)
 CUDA_OBJ_DIR := $(BUILD_DIR)/obj/cuda
 CUDA_OBJ_FILES := $(patsubst $(CUDA_SRC_DIR)/%.cu,$(CUDA_OBJ_DIR)/%.o,$(CUDA_SRC_FILES))
 

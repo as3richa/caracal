@@ -4,30 +4,28 @@
 
 #include <cuda_runtime.h>
 
+#include "../DevicePointer.h"
 #include "../GenerateRandomPlanes.h"
-
-#include <chrono>
-#include <thread>
 
 int main(void) {
   const size_t count = 1337;
   const size_t dimensions = 4200;
 
-  cudaError_t error;
-
-  float *planes;
-  size_t pitch;
-  error =
-      caracal::GenerateRandomPlanes(&planes, &pitch, count, dimensions, 1337);
-  assert(error == cudaSuccess);
-
   std::vector<float> host_planes(count * dimensions);
-  error = cudaMemcpy2D(host_planes.data(), dimensions * sizeof(float), planes,
-                       pitch, dimensions, count, cudaMemcpyDeviceToHost);
-  assert(error == cudaSuccess);
 
-  error = cudaFree(planes);
-  assert(error == cudaSuccess);
+  caracal::PitchedDevicePointer<float> planes =
+      caracal::PitchedDevicePointer<float>::MallocPitch(count, dimensions);
+
+  caracal::GenerateRandomPlanes(planes.View(), count, dimensions, 1337);
+
+  const cudaError_t error = cudaMemcpy2D(host_planes.data(),
+                                         dimensions * sizeof(float),
+                                         planes.View().Ptr(),
+                                         planes.View().Pitch(),
+                                         dimensions,
+                                         count,
+                                         cudaMemcpyDeviceToHost);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
 
   for (size_t y = 0; y < count; y++) {
     for (size_t x = 0; x < dimensions; x++) {

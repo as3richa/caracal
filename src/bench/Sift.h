@@ -6,11 +6,16 @@
 
 namespace caracal {
 
-void ReadFvecs(std::vector<float> &data, size_t &count, size_t &dimensions,
+void ReadFvecs(std::vector<float> &data,
+               size_t &count,
+               size_t &dimensions,
                std::string path);
-void WriteFvecs(const std::vector<float> &data, size_t count, size_t dimensions,
+void WriteFvecs(const std::vector<float> &data,
+                size_t count,
+                size_t dimensions,
                 std::string path);
-void ComputeGroundTruth(std::string ground_truth_path, std::string base_path,
+void ComputeGroundTruth(std::string ground_truth_path,
+                        std::string base_path,
                         std::string query_path);
 
 } // namespace caracal

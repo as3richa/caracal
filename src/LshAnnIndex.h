@@ -9,10 +9,15 @@ namespace caracal {
 
 class LshAnnIndex {
 public:
-  LshAnnIndex(size_t dimensions, size_t count, const float *vectors,
-              size_t hash_bits, size_t seed);
+  LshAnnIndex(size_t dimensions,
+              size_t count,
+              const float *vectors,
+              size_t hash_bits,
+              size_t seed);
 
-  void Query(size_t *results, size_t count, const float *vectors,
+  void Query(size_t *results,
+             size_t count,
+             const float *vectors,
              size_t neighbors) const;
 
 private:

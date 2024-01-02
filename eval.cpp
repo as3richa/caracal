@@ -1,6 +1,6 @@
 #include <cassert>
-#include <cstdio>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 
 #include "src/CudaLshAnnIndex.h"
@@ -17,22 +17,28 @@ struct Evaluation {
 };
 
 template <typename I>
-Evaluation evaluate(const I &index, float *base_vectors, size_t base_count, float *vectors,
-         size_t count, size_t dimensions, float *ground_truth) {
+Evaluation evaluate(const I &index,
+                    float *base_vectors,
+                    size_t base_count,
+                    float *vectors,
+                    size_t count,
+                    size_t dimensions,
+                    float *ground_truth) {
   // FIXME: assert index.count() >= 1000
   std::vector<size_t> results(count * 1000);
-  index.Query(results.data(), count, vectors, 1000);
+  index.Query(results.data(), count, vectors, 10);
 
   Evaluation evaluation{};
 
   for (size_t i = 0; i < count; i++) {
-    const size_t *result = results.data() + i * 1000;
+    const size_t *result = results.data() + i * 10;
     const float *ground_truth_vector = ground_truth + i * dimensions;
 
     size_t j;
-    for (j = 0; j < 1000; j++) {
+    for (j = 0; j < 10; j++) {
       const float *base_vector = base_vectors + result[j] * dimensions;
-      if (memcmp(base_vector, ground_truth_vector,
+      if (memcmp(base_vector,
+                 ground_truth_vector,
                  dimensions * sizeof(float)) == 0) {
         break;
       }
@@ -47,15 +53,15 @@ Evaluation evaluate(const I &index, float *base_vectors, size_t base_count, floa
     if (j < 10) {
       evaluation.recallAt10 += 1;
     }
-    if (j < 100) {
-      evaluation.recallAt100 += 1;
-    }
-    if (j < 1000) {
-      evaluation.recallAt1000 += 1;
-    }
-    if (j < 10000) {
-      evaluation.recallAt10000 += 1;
-    }
+    // if (j < 100) {
+    //   evaluation.recallAt100 += 1;
+    // }
+    // if (j < 1000) {
+    //   evaluation.recallAt1000 += 1;
+    // }
+    // if (j < 10000) {
+    //   evaluation.recallAt10000 += 1;
+    // }
   }
 
   evaluation.recallAt1 /= count;
@@ -84,10 +90,10 @@ int main(void) {
   caracal::ReadFvecs(base_data, base_count, dimensions, base_path);
 
   printf("Building index\n");
-  //caracal::CudaLshAnnIndex index(dimensions, base_count, base_data.data(),
-  //                               hash_bits, 1337);
-caracal::LshAnnIndex index(dimensions, base_count, base_data.data(),
-                                 hash_bits, 1337);
+  caracal::CudaLshAnnIndex index(
+      dimensions, base_count, base_data.data(), hash_bits, 1337);
+  // caracal::LshAnnIndex index(dimensions, base_count, base_data.data(),
+  //                                hash_bits, 1337);
 
   printf("Reading query vectors from %s\n", query_path.c_str());
   std::vector<float> query_data;
@@ -101,18 +107,28 @@ caracal::LshAnnIndex index(dimensions, base_count, base_data.data(),
   std::vector<float> ground_truth_data;
   size_t ground_truth_dimensions;
   size_t ground_truth_count;
-  caracal::ReadFvecs(ground_truth_data, ground_truth_count, ground_truth_dimensions,
-            ground_truth_path);
+  caracal::ReadFvecs(ground_truth_data,
+                     ground_truth_count,
+                     ground_truth_dimensions,
+                     ground_truth_path);
 
   assert(ground_truth_dimensions == dimensions);
 
   printf("Evaluating index\n");
-  const Evaluation evaluation =
-      evaluate(index, base_data.data(), base_count, query_data.data(),
-               query_count, dimensions, ground_truth_data.data());
+  const Evaluation evaluation = evaluate(index,
+                                         base_data.data(),
+                                         base_count,
+                                         query_data.data(),
+                                         query_count,
+                                         dimensions,
+                                         ground_truth_data.data());
 
   printf("recalll@1: %.4f\nrecalll@5: %.4f\nrecalll@10: %.4f\nrecalll@100: "
          "%.4f\nrecalll@1000: %.4f\nrecalll@10000: %.4f\n",
-         evaluation.recallAt1, evaluation.recallAt5, evaluation.recallAt10,
-         evaluation.recallAt100, evaluation.recallAt1000,evaluation.recallAt10000);
+         evaluation.recallAt1,
+         evaluation.recallAt5,
+         evaluation.recallAt10,
+         evaluation.recallAt100,
+         evaluation.recallAt1000,
+         evaluation.recallAt10000);
 }

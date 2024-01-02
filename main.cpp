@@ -30,8 +30,10 @@ int main(void) {
     index.Query(result, 1, vector, 3);
 
     for (size_t i = 0; i < 3; i++) {
-      printf("%f, %f (%zu)\n", vectors[2 * result[i]],
-             vectors[2 * result[i] + 1], result[i]);
+      printf("%f, %f (%zu)\n",
+             vectors[2 * result[i]],
+             vectors[2 * result[i] + 1],
+             result[i]);
     }
   }
 

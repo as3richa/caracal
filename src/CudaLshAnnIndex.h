@@ -6,16 +6,23 @@
 
 #include <cublas_v2.h>
 
+#include "cuda/DevicePointer.h"
+
 namespace caracal {
 
 class CudaLshAnnIndex {
 public:
-  CudaLshAnnIndex(size_t dimensions, size_t count, const float *vectors,
-                  size_t hash_bits, size_t seed);
+  CudaLshAnnIndex(size_t dimensions,
+                  size_t count,
+                  const float *vectors,
+                  size_t hash_bits,
+                  size_t seed);
 
   ~CudaLshAnnIndex();
 
-  void Query(size_t *results, size_t count, const float *vectors,
+  void Query(size_t *results,
+             size_t count,
+             const float *vectors,
              size_t neighbors) const;
 
 private:
@@ -23,10 +30,8 @@ private:
   size_t count;
   size_t hash_bits;
   cublasHandle_t cublas_handle;
-  float *planes;
-  size_t planes_pitch;
-  uint64_t *hashes;
-  size_t hashes_pitch;
+  PitchedDevicePointer<float> planes;
+  PitchedDevicePointer<uint64_t> hashes;
 };
 
 } // namespace caracal

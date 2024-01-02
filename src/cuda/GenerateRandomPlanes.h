@@ -6,10 +6,14 @@
 
 #include <cuda_runtime.h>
 
+#include "DevicePointer.h"
+
 namespace caracal {
 
-cudaError_t GenerateRandomPlanes(float **planes, size_t *pitch, size_t count,
-                                 size_t dimensions, uint64_t seed);
+void GenerateRandomPlanes(PitchedView<float> planes,
+                          size_t count,
+                          size_t dimensions,
+                          uint64_t seed);
 
 }
 

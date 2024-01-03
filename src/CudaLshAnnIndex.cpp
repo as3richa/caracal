@@ -12,27 +12,6 @@
 #include "cuda/Hashes.h"
 #include "cuda/TopK.h"
 
-#define CARACAL_CUDA_LSH_ANN_INDEX_SANITY_CHECKS
-
-// FIXME: this is nonsense
-template <typename T>
-void check(T result,
-           char const *const func,
-           const char *const file,
-           int const line) {
-  if (result) {
-    fprintf(stderr,
-            "CUDA error at %s:%d code=%d(%s) \"%s\" \n",
-            file,
-            line,
-            static_cast<unsigned int>(result),
-            cudaGetErrorName(result),
-            func);
-    exit(EXIT_FAILURE);
-  }
-}
-#define checkCudaErrors(val) check((val), #val, __FILE__, __LINE__)
-
 namespace caracal {
 
 CudaLshAnnIndex::CudaLshAnnIndex(size_t dimensions,
@@ -79,7 +58,7 @@ void CudaLshAnnIndex::Query(size_t *results,
 
   {
     PitchedDevicePointer<uint16_t> distances =
-        PitchedDevicePointer<uint16_t>::MallocPitch(count, this->count);
+        PitchedDevicePointer<uint16_t>::MallocPitch(this->count, count);
 
     {
       // FIXME
@@ -102,10 +81,10 @@ void CudaLshAnnIndex::Query(size_t *results,
       }
 
       ComputeHashDistances(distances.View(),
-                           this->hashes.ConstView(),
-                           this->count,
                            hashes.ConstView(),
                            count,
+                           this->hashes.ConstView(),
+                           this->count,
                            (hash_bits + 63) / 64 /* FIXME */);
     }
 
@@ -117,19 +96,19 @@ void CudaLshAnnIndex::Query(size_t *results,
          neighbors);
   }
 
-  checkCudaErrors(cudaMemcpy2D(results,
-                               neighbors * sizeof(size_t),
-                               device_results.View().Ptr(),
-                               device_results.View().Pitch(),
-                               neighbors * sizeof(size_t),
-                               count,
-                               cudaMemcpyDeviceToHost));
+  cudaMemcpy2D(results,
+               neighbors * sizeof(size_t),
+               device_results.View().Ptr(),
+               device_results.View().Pitch(),
+               neighbors * sizeof(size_t),
+               count,
+               cudaMemcpyDeviceToHost);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
 #ifndef NDEBUG
   for (size_t y = 0; y < count; y++) {
-    const size_t *result = results + y * neighbors;
     for (size_t x = 0; x < std::min(neighbors, this->count); x++) {
-      assert(result[x] < this->count);
+      assert(results[x + y * neighbors] < this->count);
     }
   }
 #endif

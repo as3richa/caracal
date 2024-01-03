@@ -31,8 +31,11 @@ ComputeHistogramsKernel(PitchedView<uint32_t> histograms,
   const size_t i = threadIdx.x + blockIdx.x * block_size;
   const size_t batch = blockIdx.y;
 
+  assert(batch < batches);
+
   if (i < count) {
     const uint16_t value = values[batch][i];
+    assert(value < histogram_size);
     atomicAdd(&block_histogram[value], 1);
   }
 

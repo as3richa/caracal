@@ -1,0 +1,8 @@
+- Recall vs. hash bits (siftsmall, sift1m)
+- Index build performance vs. vector dimension
+- Index build performance vs. vector count
+- Index build performance vs. hash bits
+- Query performance vs. vector count
+- Query performance vs. vector dimension
+- Query performance vs. hash bits
+- Query performance vs. batch size

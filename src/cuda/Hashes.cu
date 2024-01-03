@@ -112,22 +112,18 @@ ComputeHashDistancesKernel(PitchedView<uint16_t> distances,
   uint64_t *cached_left_hash = cached_left_hashes + threadIdx.y * hash_length;
 
   if (threadIdx.z == 0) {
-    const uint64_t *left_hash = left_hashes[left_hash_i];
-
 #pragma unroll
     for (size_t i = threadIdx.x; i < hash_length; i += blockDim.x) {
-      cached_left_hash[i] = left_hash[i];
+      cached_left_hash[i] = left_hashes[left_hash_i][i];
     }
   }
 
   uint64_t *cached_right_hash = cached_right_hashes + threadIdx.z * hash_length;
 
   if (threadIdx.y == 0) {
-    const uint64_t *right_hash = right_hashes[right_hash_i];
-
 #pragma unroll
     for (size_t i = threadIdx.x; i < hash_length; i += blockDim.x) {
-      cached_right_hash[i] = right_hash[i];
+      cached_right_hash[i] = right_hashes[right_hash_i][i];
     }
   }
 
@@ -153,7 +149,7 @@ ComputeHashDistancesKernel(PitchedView<uint16_t> distances,
   }
 
   if (threadIdx.x == 0) {
-    distances[left_hash_i][right_hash_i] += partial_distance;
+    distances[left_hash_i][right_hash_i] = partial_distance;
   }
 }
 
@@ -175,20 +171,20 @@ void ComputeHashDistances(PitchedView<uint16_t> distances,
   size_t right_block_size;
   size_t left_block_size;
 
-  if (right_hashes_count >= 32 && thread_count == 1) {
-    left_block_size = right_block_size = 32;
+  if (left_hashes_count >= 32 && thread_count == 1) {
+    right_block_size = left_block_size = 32;
   } else {
-    if (right_hashes_count >= 8) {
-      right_block_size = 8;
-    } else if (right_hashes_count >= 4) {
-      right_block_size = 4;
-    } else if (right_hashes_count >= 2) {
-      right_block_size = 2;
+    if (left_hashes_count >= 8) {
+      left_block_size = 8;
+    } else if (left_hashes_count >= 4) {
+      left_block_size = 4;
+    } else if (left_hashes_count >= 2) {
+      left_block_size = 2;
     } else {
-      right_block_size = 1;
+      left_block_size = 1;
     }
 
-    left_block_size = 1024 / right_block_size / thread_count;
+    right_block_size = 1024 / left_block_size / thread_count;
   }
 
   const size_t shared_memory_size =
@@ -199,6 +195,9 @@ void ComputeHashDistances(PitchedView<uint16_t> distances,
             (left_hashes_count + block.y - 1) / block.y,
             (right_hashes_count + block.z - 1) / block.z);
 
+  printf("%d %d %d\n", block.x, block.y, block.z);
+  printf("%d %d\n", grid.y, grid.z);
+  printf("%d\n", shared_memory_size);
   ComputeHashDistancesKernel<<<grid, block, shared_memory_size>>>(
       distances,
       left_hashes,

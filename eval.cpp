@@ -1,4 +1,5 @@
 #include <cassert>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -13,7 +14,6 @@ struct Evaluation {
   double recallAt10;
   double recallAt100;
   double recallAt1000;
-  double recallAt10000;
 };
 
 template <typename I>
@@ -25,17 +25,20 @@ Evaluation evaluate(const I &index,
                     size_t dimensions,
                     float *ground_truth) {
   // FIXME: assert index.count() >= 1000
-  std::vector<size_t> results(count * 1000);
-  index.Query(results.data(), count, vectors, 10);
+  const size_t k = 1000;
+  assert(base_count >= k);
+
+  std::vector<size_t> results(count * k);
+  index.Query(results.data(), count, vectors, k);
 
   Evaluation evaluation{};
 
   for (size_t i = 0; i < count; i++) {
-    const size_t *result = results.data() + i * 10;
+    const size_t *result = results.data() + i * k;
     const float *ground_truth_vector = ground_truth + i * dimensions;
 
     size_t j;
-    for (j = 0; j < 10; j++) {
+    for (j = 0; j < k; j++) {
       const float *base_vector = base_vectors + result[j] * dimensions;
       if (memcmp(base_vector,
                  ground_truth_vector,
@@ -53,15 +56,12 @@ Evaluation evaluate(const I &index,
     if (j < 10) {
       evaluation.recallAt10 += 1;
     }
-    // if (j < 100) {
-    //   evaluation.recallAt100 += 1;
-    // }
-    // if (j < 1000) {
-    //   evaluation.recallAt1000 += 1;
-    // }
-    // if (j < 10000) {
-    //   evaluation.recallAt10000 += 1;
-    // }
+    if (j < 100) {
+      evaluation.recallAt100 += 1;
+    }
+    if (j < 1000) {
+      evaluation.recallAt1000 += 1;
+    }
   }
 
   evaluation.recallAt1 /= count;
@@ -69,31 +69,21 @@ Evaluation evaluate(const I &index,
   evaluation.recallAt10 /= count;
   evaluation.recallAt100 /= count;
   evaluation.recallAt1000 /= count;
-  evaluation.recallAt10000 /= count;
 
   return evaluation;
 }
 
 int main(void) {
-  const std::string base_path = "data/siftsmall/siftsmall_base.fvecs";
-  const std::string query_path = "data/siftsmall/siftsmall_query.fvecs";
+  const std::string base_path = "data/sift/sift_base.fvecs";
+  const std::string query_path = "data/sift/sift_query.fvecs";
   const std::string ground_truth_path =
-      "data/siftsmall/caracal_siftsmall_groundtruth.fvecs";
-
-  size_t hash_bits;
-  scanf("%zu", &hash_bits);
+      "data/sift/caracal_sift_groundtruth.fvecs";
 
   printf("Reading base vectors from %s\n", base_path.c_str());
   std::vector<float> base_data;
   size_t base_count;
   size_t dimensions;
   caracal::ReadFvecs(base_data, base_count, dimensions, base_path);
-
-  printf("Building index\n");
-  caracal::CudaLshAnnIndex index(
-      dimensions, base_count, base_data.data(), hash_bits, 1337);
-  // caracal::LshAnnIndex index(dimensions, base_count, base_data.data(),
-  //                                hash_bits, 1337);
 
   printf("Reading query vectors from %s\n", query_path.c_str());
   std::vector<float> query_data;
@@ -115,20 +105,57 @@ int main(void) {
   assert(ground_truth_dimensions == dimensions);
 
   printf("Evaluating index\n");
-  const Evaluation evaluation = evaluate(index,
-                                         base_data.data(),
-                                         base_count,
-                                         query_data.data(),
-                                         query_count,
-                                         dimensions,
-                                         ground_truth_data.data());
 
-  printf("recalll@1: %.4f\nrecalll@5: %.4f\nrecalll@10: %.4f\nrecalll@100: "
-         "%.4f\nrecalll@1000: %.4f\nrecalll@10000: %.4f\n",
-         evaluation.recallAt1,
-         evaluation.recallAt5,
-         evaluation.recallAt10,
-         evaluation.recallAt100,
-         evaluation.recallAt1000,
-         evaluation.recallAt10000);
+      caracal::LshAnnIndex index_warmup(
+       dimensions, base_count, base_data.data(), 1024, 31337);
+
+    auto build_start_time = std::chrono::high_resolution_clock::now();
+    caracal::LshAnnIndex index(
+       dimensions, base_count, base_data.data(), 1024, 31337);
+    auto build_end_time = std::chrono::high_resolution_clock::now();
+    auto build_duration = std::chrono::duration_cast<std::chrono::microseconds>(build_end_time - build_start_time);
+
+    printf("Build: %zuus\n", build_duration.count());
+
+    std::vector<size_t> results(query_count * 1000);
+    index.Query(results.data(), query_count, query_data.data(), 1000);
+    auto query_start_time = std::chrono::high_resolution_clock::now();
+    index.Query(results.data(), 10, query_data.data(), 1000);
+    auto query_end_time = std::chrono::high_resolution_clock::now();
+    auto query_duration = std::chrono::duration_cast<std::chrono::microseconds>(query_end_time - query_start_time);
+
+    printf("Query: %zuus\n", query_duration.count());
+
+  puts("hash_bits,recall1,recall5,recall10,recall100,recall1000");
+
+  for (size_t hash_bits = 1; hash_bits <= 4096;) {
+    caracal::CudaLshAnnIndex index(
+       dimensions, base_count, base_data.data(), hash_bits, 31337);
+    //caracal::LshAnnIndex index(
+    //    dimensions, base_count, base_data.data(), hash_bits, 31337);
+
+    const Evaluation evaluation = evaluate(index,
+                                           base_data.data(),
+                                           base_count,
+                                           query_data.data(),
+                                           query_count,
+                                           dimensions,
+                                           ground_truth_data.data());
+
+    printf("%zu,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+           hash_bits,
+           evaluation.recallAt1,
+           evaluation.recallAt5,
+           evaluation.recallAt10,
+           evaluation.recallAt100,
+           evaluation.recallAt1000);
+
+    if (hash_bits < 16) {
+      hash_bits++;
+    } else if (hash_bits < 128) {
+      hash_bits += 16;
+    } else {
+      hash_bits += 128;
+    }
+  }
 }

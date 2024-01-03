@@ -24,7 +24,9 @@ int main(void) {
 
   for (;;) {
     float vector[2];
-    scanf("%f %f", &vector[0], &vector[1]);
+    if (scanf("%f %f", &vector[0], &vector[1]) != 2) {
+      break;
+    }
 
     size_t result[3];
     index.Query(result, 1, vector, 3);

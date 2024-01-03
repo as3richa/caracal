@@ -1,3 +1,4 @@
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 
@@ -139,7 +140,9 @@ ComputeHashDistancesKernel(PitchedView<uint16_t> distances,
     partial_distance += __popcll(cached_left_hash[i] ^ cached_right_hash[i]);
   }
 
-  if (blockDim.x >= 4) {
+  assert(blockDim.x == 4 || blockDim.x == 2 || blockDim.x == 1);
+
+  if (blockDim.x == 4) {
     partial_distance +=
         __shfl_down_sync(0xffffffff, partial_distance, 2, blockDim.x);
   }

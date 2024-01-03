@@ -12,76 +12,7 @@ static const size_t histogram_bits = 12;
 static const size_t histogram_size = 1 << histogram_bits;
 static const size_t block_size = 1024;
 static const size_t block_histogram_steps = 4;
-
-__device__ static void ComputePrefixSums(unsigned int *data,
-                                         unsigned int *temp) {
-  const int k = threadIdx.x;
-
-  const uint2 u = ((uint2 *)data)[2 * k];
-  const uint2 v = ((uint2 *)data)[2 * k + 1];
-
-  temp[2 * k] = u.x + u.y;
-  temp[2 * k + 1] = v.x + v.y;
-
-  const unsigned int ux = u.x;
-  const unsigned int vx = v.x;
-
-  if (k == 0) {
-    data[histogram_size] = data[histogram_size - 1];
-  }
-
-  int offset = 1;
-#pragma unroll
-
-  for (int d = histogram_size >> 1; d > 0; d >>= 1) {
-    __syncthreads();
-
-    if (k < d) {
-      // const int offset = 1 << (histogram_bits - 1 - d);
-      const int i = offset * (2 * k + 1) - 1;
-      const int j = offset * (2 * k + 2) - 1;
-      temp[j] += temp[i];
-    }
-    offset *= 2;
-  }
-
-  __syncthreads();
-
-  if (k == 0) {
-    temp[histogram_size - 1] = 0;
-  }
-
-#pragma unroll
-  for (int d = 1; d < histogram_size; d *= 2) {
-
-    offset >>= 1;
-    __syncthreads();
-
-    if (k < d) {
-      // const int offset = 1 << (histogram_bits - 1 - d);
-      const int i = offset * (2 * k + 1) - 1;
-      const int j = offset * (2 * k + 2) - 1;
-      unsigned int t = temp[i];
-      temp[i] = temp[j];
-      temp[j] += t;
-    }
-  }
-
-  __syncthreads();
-
-  unsigned int p = temp[2 * k];
-  unsigned int q = temp[2 * k + 1];
-
-  ((uint4 *)data)[k] = make_uint4(p, p + ux, q, q + vx);
-
-  __syncthreads();
-
-  if (k == 0) {
-    data[histogram_size] += data[histogram_size - 1];
-  }
-
-  __syncthreads();
-}
+static const size_t reduced_histogram_size = 2048;
 
 __global__ static void
 ComputeHistogramsKernel(PitchedView<uint32_t> histograms,
@@ -109,22 +40,101 @@ ComputeHistogramsKernel(PitchedView<uint32_t> histograms,
 
 #pragma unroll
   for (size_t i = 0; i < block_histogram_steps; i++) {
-    __syncthreads();
     atomicAdd(&histograms[batch][threadIdx.x + i * block_size],
               block_histogram[threadIdx.x + i * block_size]);
   }
 }
 
-__global__ static void ComputePrefixSumsAndThresholdsKernel(
-    PitchedView<unsigned int> histograms, uint16_t *thresholds, size_t k) {
+__device__ static void ComputePrefixSums(unsigned int *data,
+                                         unsigned int *temp) {
+  const int thread = threadIdx.x;
+
+  const uint4 v = ((uint4 *)data)[thread];
+
+  temp[2 * thread] = v.x + v.y;
+  temp[2 * thread + 1] = v.z + v.w;
+
+  const unsigned int v1 = v.x;
+  const unsigned int v2 = v.z;
+
+  int offset = 1;
+
+#pragma unroll
+  for (int d = reduced_histogram_size >> 1; d > 0; d >>= 1) {
+    __syncthreads();
+
+    if (thread < d) {
+      const int i = offset * (2 * thread + 1) - 1;
+      const int j = offset * (2 * thread + 2) - 1;
+      temp[j] += temp[i];
+    }
+    offset *= 2;
+  }
+
+  __syncthreads();
+
+  if (thread == 0) {
+    temp[reduced_histogram_size] = temp[reduced_histogram_size - 1];
+    temp[reduced_histogram_size - 1] = 0;
+  }
+
+#pragma unroll
+  for (int d = 1; d < reduced_histogram_size; d *= 2) {
+
+    offset >>= 1;
+    __syncthreads();
+
+    if (thread < d) {
+      const int i = offset * (2 * thread + 1) - 1;
+      const int j = offset * (2 * thread + 2) - 1;
+      unsigned int t = temp[i];
+      temp[i] = temp[j];
+      temp[j] += t;
+    }
+  }
+
+  __syncthreads();
+
+  const unsigned int p = temp[2 * thread];
+  const unsigned int q = temp[2 * thread + 1];
+  ((uint4 *)data)[thread] = make_uint4(p, p + v1, q, q + v2);
+
+  if (thread == 0) {
+    data[histogram_size] = temp[reduced_histogram_size];
+  }
+
+  __syncthreads();
+}
+
+__global__ static void
+ComputePrefixSumsAndThresholdsKernel(PitchedView<unsigned int> histograms,
+                                     uint16_t *thresholds,
+                                     size_t count,
+                                     size_t k) {
   __shared__ __align__(
-      2 *
-      sizeof(unsigned int)) unsigned int block_histogram[histogram_size + 1];
+      4 * sizeof(unsigned int)) unsigned int temp[reduced_histogram_size + 1];
+
+  assert(k <= count);
+  assert(blockDim.x == block_size && blockDim.y == 1 && blockDim.z == 1);
 
   const size_t batch = blockIdx.y;
   const size_t x = threadIdx.x;
 
-  ComputePrefixSums(histograms[batch], block_histogram);
+  ComputePrefixSums(histograms[batch], temp);
+
+#ifndef NDEBUG
+  __syncthreads();
+
+  assert(histograms[batch][0] == 0);
+  assert(histograms[batch][histogram_size] == count);
+
+  for (size_t i = 0; i < block_histogram_steps; i++) {
+    size_t j = x + i * block_size;
+    assert(histograms[batch][j] <= histograms[batch][j + 1]);
+  }
+#else
+  (void)count;
+#endif
 
 #pragma unroll
   for (size_t i = 0; i < block_histogram_steps; i++) {
@@ -141,10 +151,11 @@ __global__ static void ComputePrefixSumsAndThresholdsKernel(
 
 #ifndef NDEBUG
   __syncthreads();
+
   const uint16_t threshold = thresholds[batch];
   assert(threshold < histogram_size);
-  assert(histograms[batch][threshold] < thresholds[batch] &&
-         thresholds[batch] <= histograms[batch][threshold + 1]);
+  assert(histograms[batch][threshold] < k &&
+         k <= histograms[batch][threshold + 1]);
 #endif
 }
 
@@ -204,42 +215,8 @@ void TopK(PitchedView<size_t> results,
   CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
   ComputePrefixSumsAndThresholdsKernel<<<dim3(1, batches), block>>>(
-      histograms.View(), thresholds.Ptr(), k);
+      histograms.View(), thresholds.Ptr(), count, k);
   CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
-
-  /*
-    unsigned int *host_histograms = (unsigned int *)malloc(
-        batches * (histogram_size + 1) * sizeof(unsigned int));
-    error = cudaMemcpy2D(
-        host_histograms, (histogram_size + 1) * sizeof(unsigned int),
-    histograms, histograms_pitch, (histogram_size + 1) * sizeof(unsigned int),
-    batches, cudaMemcpyDeviceToHost); assert(error == cudaSuccess);
-
-    uint16_t *host_thresholds = (uint16_t *)malloc(sizeof(uint16_t) * batches);
-    error = cudaMemcpy(host_thresholds, thresholds, sizeof(uint16_t) * batches,
-                       cudaMemcpyDeviceToHost);
-    assert(error == cudaSuccess);
-
-    for (size_t y = 0; y < batches; y++) {
-      unsigned int *host_histogram = host_histograms + y * (histogram_size + 1);
-      assert(host_histogram[0] == 0);
-      // printf("%d %d\n", host_histogram[histogram_size], count);
-      assert(host_histogram[histogram_size] == count);
-      for (size_t i = 1; i <= histogram_size; i++) {
-        assert(host_histogram[i - 1] <= host_histogram[i]);
-        assert(host_histogram[i] <= count);
-        // printf("%zu: %u; ", i, host_histogram[i]);
-      }
-
-      // printf("%d %d %d %d\n", host_thresholds[y],
-      // host_histogram[host_thresholds[y]], k,
-    host_histogram[host_thresholds[y]+
-      // 1]);
-      assert(host_thresholds[y] < histogram_size);
-      assert(host_histogram[host_thresholds[y]] < k &&
-             k <= host_histogram[host_thresholds[y] + 1]);
-    }
-    */
 
   SelectKernel<<<grid, block>>>(
       results, values, count, batches, thresholds.Ptr(), histograms.View(), k);

@@ -1,8 +1,16 @@
 CXX := g++
-CXXFLAGS := -std=c++20 -Wall -Wextra -pedantic -O3 -flto -DNDEBUG
+ifeq "$(DEBUG)" "1"
+	CXXFLAGS := -std=c++20 -Wall -Wextra -Werror -pedantic -O0 -g
+else
+	CXXFLAGS := -std=c++20 -Wall -Wextra -O3 -flto -DNDEBUG
+endif
 
 CUDA_CXX := nvcc
-CUDA_CXXFLAGS := -dlto -DNDEBUG
+ifeq "$(DEBUG)" "1"
+	CUDA_CXXFLAGS := -O0 -g
+else
+	CUDA_CXXFLAGS := -dlto -DNDEBUG
+endif
 CUDA_LFLAGS := -lcublas
 
 BUILD_DIR := build

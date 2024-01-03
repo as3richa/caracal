@@ -1,3 +1,5 @@
+#undef NDEBUG
+
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -38,23 +40,21 @@ void ExecuteRandomTestCase(const RandomTestCase &test_case) {
       caracal::PitchedDevicePointer<size_t>::MallocPitch(test_case.k,
                                                          test_case.batches);
 
-  caracal::TopK(device_results.View().Ptr(),
-                device_results.View().Pitch(),
-                device_values.View().Ptr(),
+  caracal::TopK(device_results.View(),
+                device_values.ConstView(),
                 test_case.count,
                 test_case.batches,
-                device_values.View().Pitch(),
                 test_case.k);
 
   std::vector<size_t> results(test_case.k * test_case.batches);
-  const cudaError_t error = cudaMemcpy2D(results.data(),
-                                         test_case.k * sizeof(size_t),
-                                         device_results.View().Ptr(),
-                                         device_results.View().Pitch(),
-                                         test_case.k * sizeof(size_t),
-                                         test_case.batches,
-                                         cudaMemcpyDeviceToHost);
-  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+  cudaMemcpy2D(results.data(),
+               test_case.k * sizeof(size_t),
+               device_results.View().Ptr(),
+               device_results.View().Pitch(),
+               test_case.k * sizeof(size_t),
+               test_case.batches,
+               cudaMemcpyDeviceToHost);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
   for (size_t y = 0; y < test_case.batches; y++) {
     const size_t *result = results.data() + y * test_case.k;

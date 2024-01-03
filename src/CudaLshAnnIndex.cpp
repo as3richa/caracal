@@ -110,13 +110,10 @@ void CudaLshAnnIndex::Query(size_t *results,
     }
 
     // FIXME: only supports distances with up to 12 bits
-    // FIXME: actually use the view APIs
-    TopK(device_results.View().Ptr(),
-         device_results.View().Pitch(),
-         distances.ConstView().Ptr(),
+    TopK(device_results.View(),
+         distances.ConstView(),
          this->count,
          count,
-         distances.ConstView().Pitch(),
          neighbors);
   }
 
@@ -128,7 +125,7 @@ void CudaLshAnnIndex::Query(size_t *results,
                                count,
                                cudaMemcpyDeviceToHost));
 
-#ifdef CARACAL_CUDA_LSH_ANN_INDEX_SANITY_CHECKS
+#ifndef NDEBUG
   for (size_t y = 0; y < count; y++) {
     const size_t *result = results + y * neighbors;
     for (size_t x = 0; x < std::min(neighbors, this->count); x++) {

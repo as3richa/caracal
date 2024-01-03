@@ -35,8 +35,8 @@ public:
   static DevicePointer<T> Malloc(size_t count) {
     T *ptr;
 
-    const cudaError_t error = cudaMalloc(&ptr, count * sizeof(T));
-    CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+    cudaMalloc(&ptr, count * sizeof(T));
+    CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
     return DevicePointer(ptr);
   }
@@ -44,16 +44,14 @@ public:
   static DevicePointer<T> Memcpy(const T *source, size_t count) {
     DevicePointer<T> ptr = Malloc(count);
 
-    const cudaError_t error = cudaMemcpy(
-        ptr.get(), source, count * sizeof(T), cudaMemcpyHostToDevice);
-    CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+    cudaMemcpy(ptr.Ptr(), source, count * sizeof(T), cudaMemcpyHostToDevice);
+    CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
     return ptr;
   }
 
-  // FIXME: nope
-  T *&get() noexcept { return ptr; }
-  const T *get() const noexcept { return ptr; }
+  T *Ptr() noexcept { return ptr; }
+  const T *Ptr() const noexcept { return ptr; }
 };
 
 template <typename T> class PitchedView;
@@ -81,9 +79,8 @@ public:
     T *ptr;
     size_t pitch;
 
-    const cudaError_t error =
-        cudaMallocPitch(&ptr, &pitch, width * sizeof(T), height);
-    CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+    cudaMallocPitch(&ptr, &pitch, width * sizeof(T), height);
+    CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
     return PitchedDevicePointer(DevicePointer(ptr), pitch);
   }
@@ -92,22 +89,22 @@ public:
   MemcpyPitch(const T *source, size_t width, size_t height) {
     PitchedDevicePointer<T> ptr = MallocPitch(width, height);
 
-    const cudaError_t error = cudaMemcpy2D(ptr.View().Ptr(),
-                                           ptr.View().Pitch(),
-                                           source,
-                                           width * sizeof(T),
-                                           width * sizeof(T),
-                                           height,
-                                           cudaMemcpyHostToDevice);
-    CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+    cudaMemcpy2D(ptr.View().Ptr(),
+                 ptr.View().Pitch(),
+                 source,
+                 width * sizeof(T),
+                 width * sizeof(T),
+                 height,
+                 cudaMemcpyHostToDevice);
+    CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
     return ptr;
   }
 
-  PitchedView<T> View() noexcept { return PitchedView<T>(ptr.get(), pitch); }
+  PitchedView<T> View() noexcept { return PitchedView<T>(ptr.Ptr(), pitch); }
 
   ConstPitchedView<T> ConstView() const noexcept {
-    return ConstPitchedView<T>(ptr.get(), pitch);
+    return ConstPitchedView<T>(ptr.Ptr(), pitch);
   }
 };
 

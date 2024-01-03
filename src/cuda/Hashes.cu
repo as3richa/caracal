@@ -33,7 +33,7 @@ void ComputeDots(PitchedView<float> dots,
                                             dots.Pitch() / sizeof(float));
   if (status != CUBLAS_STATUS_SUCCESS) {
     // FIXME: ???
-    CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(cudaErrorUnknown);
+    CARACAL_CUDA_EXCEPTION_THROW_ON_ERROR(cudaErrorUnknown);
   }
 }
 
@@ -65,10 +65,7 @@ void ConvertDotsToBits(PitchedView<uint64_t> bits,
 
   ConvertDotsToBitsKernel<<<grid, block>>>(
       static_cast<PitchedView<uint32_t>>(bits), dots, width, height);
-  const cudaError_t error = cudaGetLastError();
-  if (error != cudaSuccess) {
-    CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
-  }
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 }
 
 void ComputeHashes(PitchedView<uint64_t> hashes,
@@ -206,8 +203,7 @@ void ComputeHashDistances(PitchedView<uint16_t> distances,
       right_hashes,
       right_hashes_count,
       hash_length);
-  const cudaError_t error = cudaGetLastError();
-  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 }
 
 } // namespace caracal

@@ -1,6 +1,7 @@
 #include "TopK.h"
 
 #include <algorithm>
+#include <cassert>
 #include <vector>
 
 #include "DevicePointer.h"
@@ -82,12 +83,12 @@ __device__ static void ComputePrefixSums(unsigned int *data,
   __syncthreads();
 }
 
-__global__ static void ComputeHistogramsKernel(const uint16_t *values,
-                                               size_t count,
-                                               size_t batches,
-                                               size_t values_pitch,
-                                               PitchedView<uint32_t> histograms,
-                                               size_t k) {
+__global__ static void
+ComputeHistogramsKernel(PitchedView<uint32_t> histograms,
+                        ConstPitchedView<uint16_t> values,
+                        size_t count,
+                        size_t batches,
+                        size_t k) {
   __shared__ unsigned int block_histogram[histogram_size];
 
 #pragma unroll
@@ -100,9 +101,7 @@ __global__ static void ComputeHistogramsKernel(const uint16_t *values,
   const size_t batch = blockIdx.y;
 
   if (i < count) {
-    const uint16_t *batch_values =
-        values + batch * (values_pitch / sizeof(uint16_t));
-    const uint16_t value = batch_values[i];
+    const uint16_t value = values[batch][i];
     atomicAdd(&block_histogram[value], 1);
   }
 
@@ -118,15 +117,11 @@ __global__ static void ComputeHistogramsKernel(const uint16_t *values,
 
 __global__ static void ComputePrefixSumsAndThresholdsKernel(
     PitchedView<unsigned int> histograms, uint16_t *thresholds, size_t k) {
-  // FIXME: wrong alignment
-  __shared__ unsigned int block_histogram[histogram_size + 1];
-
-  for (size_t i = 0; i < block_histogram_steps; i++) {
-    block_histogram[threadIdx.x + i * block_size] = 0;
-  }
+  __shared__ __align__(
+      2 *
+      sizeof(unsigned int)) unsigned int block_histogram[histogram_size + 1];
 
   const size_t batch = blockIdx.y;
-
   const size_t x = threadIdx.x;
 
   ComputePrefixSums(histograms[batch], block_histogram);
@@ -143,14 +138,20 @@ __global__ static void ComputePrefixSumsAndThresholdsKernel(
       thresholds[batch] = j;
     }
   }
+
+#ifndef NDEBUG
+  __syncthreads();
+  const uint16_t threshold = thresholds[batch];
+  assert(threshold < histogram_size);
+  assert(histograms[batch][threshold] < thresholds[batch] &&
+         thresholds[batch] <= histograms[batch][threshold + 1]);
+#endif
 }
 
-__global__ static void SelectKernel(size_t *results,
-                                    size_t results_pitch,
-                                    const uint16_t *values,
+__global__ static void SelectKernel(PitchedView<size_t> results,
+                                    ConstPitchedView<uint16_t> values,
                                     size_t count,
                                     size_t batches,
-                                    size_t values_pitch,
                                     const uint16_t *thresholds,
                                     PitchedView<unsigned int> histograms,
                                     size_t k) {
@@ -161,37 +162,23 @@ __global__ static void SelectKernel(size_t *results,
     return;
   }
 
-  const uint16_t *batch_values =
-      values + batch * (values_pitch / sizeof(uint16_t));
-  const uint16_t value = batch_values[i];
-
+  const uint16_t value = values[batch][i];
   const size_t threshold = thresholds[batch];
 
-  size_t *result = results + batch * (results_pitch / sizeof(size_t));
+  if (value <= threshold) {
+    const unsigned int j = atomicAdd(&histograms[batch][value], 1);
+    assert(value == threshold || j < k);
 
-  if (value < threshold) {
-    unsigned int j = atomicAdd(&histograms[batch][value], 1);
-    result[j] = i;
-
-    if (j >= k) {
-      for (size_t x = 0; x < k; x++) {
-        result[x] = ~(size_t)0;
-      }
-    }
-  } else if (value == threshold) {
-    unsigned int j = atomicAdd(&histograms[batch][value], 1);
-    if (j < k) {
-      result[j] = i;
+    if (value < threshold || j < k) {
+      results[batch][j] = i;
     }
   }
 }
 
-void TopK(size_t *results,
-          size_t results_pitch,
-          const uint16_t *values,
+void TopK(PitchedView<size_t> results,
+          ConstPitchedView<uint16_t> values,
           size_t count,
           size_t batches,
-          size_t values_pitch,
           size_t k) {
   if (k > count) {
     k = count;
@@ -202,25 +189,23 @@ void TopK(size_t *results,
   PitchedDevicePointer<unsigned int> histograms =
       PitchedDevicePointer<unsigned int>::MallocPitch(histogram_size + 1,
                                                       batches);
-  cudaError_t error = cudaMemset2D(histograms.View().Ptr(),
-                                   histograms.View().Pitch(),
-                                   0,
-                                   (histogram_size + 1) * sizeof(unsigned int),
-                                   batches);
-  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+  cudaMemset2D(histograms.View().Ptr(),
+               histograms.View().Pitch(),
+               0,
+               (histogram_size + 1) * sizeof(unsigned int),
+               batches);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
   dim3 block(block_size);
   dim3 grid((count + block.x - 1) / block.x, batches);
 
   ComputeHistogramsKernel<<<grid, block>>>(
-      values, count, batches, values_pitch, histograms.View(), k);
-  error = cudaGetLastError();
-  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+      histograms.View(), values, count, batches, k);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
   ComputePrefixSumsAndThresholdsKernel<<<dim3(1, batches), block>>>(
-      histograms.View(), thresholds.get(), k);
-  error = cudaGetLastError();
-  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+      histograms.View(), thresholds.Ptr(), k);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
   /*
     unsigned int *host_histograms = (unsigned int *)malloc(
@@ -256,16 +241,9 @@ void TopK(size_t *results,
     }
     */
 
-  SelectKernel<<<grid, block>>>(results,
-                                results_pitch,
-                                values,
-                                count,
-                                batches,
-                                values_pitch,
-                                thresholds.get(),
-                                histograms.View(),
-                                k);
-  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+  SelectKernel<<<grid, block>>>(
+      results, values, count, batches, thresholds.Ptr(), histograms.View(), k);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR(error);
 }
 
 } // namespace caracal

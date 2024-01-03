@@ -10,12 +10,10 @@
 
 namespace caracal {
 
-void TopK(size_t *results,
-          size_t results_pitch,
-          const uint16_t *values,
+void TopK(PitchedView<size_t> results,
+          ConstPitchedView<uint16_t> values,
           size_t count,
           size_t batches,
-          size_t values_pitch,
           size_t k);
 
 }

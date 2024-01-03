@@ -24,7 +24,7 @@ __global__ static void GenerateRandomPlanesKernel(PitchedView<float> planes,
   curandState_t state;
   curand_init(seed, sequence_number, 0, &state);
 
-  planes[y][x] = 2 * (curand_uniform(&state) - 0.5);
+  planes[y][x] = curand_uniform(&state) - 0.5;
 }
 
 void GenerateRandomPlanes(PitchedView<float> planes,
@@ -36,8 +36,7 @@ void GenerateRandomPlanes(PitchedView<float> planes,
       (dimensions + block.x - 1) / block.x, (count + block.y - 1) / block.y, 1);
 
   GenerateRandomPlanesKernel<<<grid, block>>>(planes, count, dimensions, seed);
-  const cudaError_t error = cudaGetLastError();
-  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 }
 
 } // namespace caracal

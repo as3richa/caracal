@@ -30,14 +30,22 @@ private:
 
 } // namespace caracal
 
-#define CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error)                           \
+#define CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR(error)                      \
+  CARACAL_CUDA_EXCEPTION_THROW_ON_ERROR(cudaGetLastError())
+
+#define CARACAL_CUDA_EXCEPTION_THROW_ON_ERROR(error)                           \
   do {                                                                         \
-    if ((error) == cudaSuccess) {                                              \
+    cudaError_t caracal_cuda_exception_throw_on_error_error = (error);         \
+    if (caracal_cuda_exception_throw_on_error_error == cudaSuccess) {          \
       break;                                                                   \
     }                                                                          \
-    throw caracal::CudaException((error),                                      \
-                                 caracal::CudaException::BuildMessage(         \
-                                     __FILE__, __LINE__, __func__, error));    \
+    throw caracal::CudaException(                                              \
+        caracal_cuda_exception_throw_on_error_error,                           \
+        caracal::CudaException::BuildMessage(                                  \
+            __FILE__,                                                          \
+            __LINE__,                                                          \
+            __func__,                                                          \
+            caracal_cuda_exception_throw_on_error_error));                     \
   } while (0)
 
 #endif

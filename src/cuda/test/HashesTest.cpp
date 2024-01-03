@@ -1,3 +1,5 @@
+#undef NDEBUG
+
 #include <bit>
 #include <cassert>
 #include <cstring>
@@ -50,7 +52,10 @@ void ComputeDotsTest(void) {
           &host_planes[0][0], dimensions, planes_count);
 
   cublasHandle_t cublas_handle;
-  assert(cublasCreate(&cublas_handle) == CUBLAS_STATUS_SUCCESS);
+  if (cublasCreate(&cublas_handle) != CUBLAS_STATUS_SUCCESS) {
+    // FIXME: ???
+    CARACAL_CUDA_EXCEPTION_THROW_ON_ERROR(cudaErrorUnknown);
+  }
 
   caracal::PitchedDevicePointer<float> dots =
       caracal::PitchedDevicePointer<float>::MallocPitch(planes_count,
@@ -66,14 +71,14 @@ void ComputeDotsTest(void) {
   assert(cublasDestroy(cublas_handle) == CUBLAS_STATUS_SUCCESS);
 
   float host_dots[vectors_count][planes_count];
-  const cudaError_t error = cudaMemcpy2D(host_dots,
-                                         planes_count * sizeof(float),
-                                         dots.View().Ptr(),
-                                         dots.View().Pitch(),
-                                         planes_count * sizeof(float),
-                                         vectors_count,
-                                         cudaMemcpyDeviceToHost);
-  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+  cudaMemcpy2D(host_dots,
+               planes_count * sizeof(float),
+               dots.View().Ptr(),
+               dots.View().Pitch(),
+               planes_count * sizeof(float),
+               vectors_count,
+               cudaMemcpyDeviceToHost);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR(error);
 
   const float expectation[vectors_count][planes_count] = {
       {23.0, 68.0, 124.0, 202.0},
@@ -113,14 +118,14 @@ void ConvertDotsToBitsTest(void) {
   caracal::ConvertDotsToBits(bits.View(), dots.ConstView(), width, height);
 
   uint64_t host_bits[height][(width + 64 - 1) / 64];
-  const cudaError_t error = cudaMemcpy2D(host_bits,
-                                         sizeof(host_bits[0]),
-                                         bits.View().Ptr(),
-                                         bits.View().Pitch(),
-                                         sizeof(host_bits[0]),
-                                         height,
-                                         cudaMemcpyDeviceToHost);
-  CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+  cudaMemcpy2D(host_bits,
+               sizeof(host_bits[0]),
+               bits.View().Ptr(),
+               bits.View().Pitch(),
+               sizeof(host_bits[0]),
+               height,
+               cudaMemcpyDeviceToHost);
+  CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
   assert(memcmp(host_bits, expectation, sizeof(expectation)) == 0);
 }
@@ -153,7 +158,10 @@ void ComputeHashesTest(void) {
           &host_planes[0][0], dimensions, planes_count);
 
   cublasHandle_t cublas_handle;
-  assert(cublasCreate(&cublas_handle) == CUBLAS_STATUS_SUCCESS);
+  if (cublasCreate(&cublas_handle) != CUBLAS_STATUS_SUCCESS) {
+    // FIXME: ???
+    CARACAL_CUDA_EXCEPTION_THROW_ON_ERROR(cudaErrorUnknown);
+  }
 
   // FIXME
   caracal::PitchedDevicePointer<uint64_t> hashes =
@@ -248,15 +256,14 @@ void ComputeHashDistancesTest(void) {
                                   hash_length);
 
     uint16_t host_distances[left_hashes_count][right_hashes_count];
-    const cudaError_t error =
-        cudaMemcpy2D(host_distances,
-                     right_hashes_count * sizeof(uint16_t),
-                     distances.View().Ptr(),
-                     distances.View().Pitch(),
-                     right_hashes_count * sizeof(uint16_t),
-                     left_hashes_count,
-                     cudaMemcpyDeviceToHost);
-    CARACAL_CUDA_EXCEPTION_THROW_ON_ERORR(error);
+    cudaMemcpy2D(host_distances,
+                 right_hashes_count * sizeof(uint16_t),
+                 distances.View().Ptr(),
+                 distances.View().Pitch(),
+                 right_hashes_count * sizeof(uint16_t),
+                 left_hashes_count,
+                 cudaMemcpyDeviceToHost);
+    CARACAL_CUDA_EXCEPTION_THROW_ON_LAST_ERROR();
 
     assert(memcmp(host_distances, expectation, sizeof(expectation)) == 0);
   }

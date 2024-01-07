@@ -8,6 +8,8 @@
 #include "src/LshAnnIndex.h"
 #include "src/bench/Sift.h"
 
+using namespace caracal;
+
 struct Evaluation {
   double recallAt1;
   double recallAt5;
@@ -23,55 +25,7 @@ Evaluation evaluate(const I &index,
                     float *vectors,
                     size_t count,
                     size_t dimensions,
-                    float *ground_truth) {
-  // FIXME: assert index.count() >= 1000
-  const size_t k = 1000;
-  assert(base_count >= k);
-
-  std::vector<size_t> results(count * k);
-  index.Query(results.data(), count, vectors, k);
-
-  Evaluation evaluation{};
-
-  for (size_t i = 0; i < count; i++) {
-    const size_t *result = results.data() + i * k;
-    const float *ground_truth_vector = ground_truth + i * dimensions;
-
-    size_t j;
-    for (j = 0; j < k; j++) {
-      const float *base_vector = base_vectors + result[j] * dimensions;
-      if (memcmp(base_vector,
-                 ground_truth_vector,
-                 dimensions * sizeof(float)) == 0) {
-        break;
-      }
-    }
-
-    if (j < 1) {
-      evaluation.recallAt1 += 1;
-    }
-    if (j < 5) {
-      evaluation.recallAt5 += 1;
-    }
-    if (j < 10) {
-      evaluation.recallAt10 += 1;
-    }
-    if (j < 100) {
-      evaluation.recallAt100 += 1;
-    }
-    if (j < 1000) {
-      evaluation.recallAt1000 += 1;
-    }
-  }
-
-  evaluation.recallAt1 /= count;
-  evaluation.recallAt5 /= count;
-  evaluation.recallAt10 /= count;
-  evaluation.recallAt100 /= count;
-  evaluation.recallAt1000 /= count;
-
-  return evaluation;
-}
+                    float *ground_truth) {}
 
 int main(void) {
   const std::string base_path = "data/sift/sift_base.fvecs";
@@ -106,33 +60,35 @@ int main(void) {
 
   printf("Evaluating index\n");
 
-      caracal::LshAnnIndex index_warmup(
-       dimensions, base_count, base_data.data(), 1024, 31337);
+  caracal::LshAnnIndex index_warmup(
+      dimensions, base_count, base_data.data(), 1024, 31337);
 
-    auto build_start_time = std::chrono::high_resolution_clock::now();
-    caracal::LshAnnIndex index(
-       dimensions, base_count, base_data.data(), 1024, 31337);
-    auto build_end_time = std::chrono::high_resolution_clock::now();
-    auto build_duration = std::chrono::duration_cast<std::chrono::microseconds>(build_end_time - build_start_time);
+  auto build_start_time = std::chrono::high_resolution_clock::now();
+  caracal::LshAnnIndex index(
+      dimensions, base_count, base_data.data(), 1024, 31337);
+  auto build_end_time = std::chrono::high_resolution_clock::now();
+  auto build_duration = std::chrono::duration_cast<std::chrono::microseconds>(
+      build_end_time - build_start_time);
 
-    printf("Build: %zuus\n", build_duration.count());
+  printf("Build: %zuus\n", build_duration.count());
 
-    std::vector<size_t> results(query_count * 1000);
-    index.Query(results.data(), query_count, query_data.data(), 1000);
-    auto query_start_time = std::chrono::high_resolution_clock::now();
-    index.Query(results.data(), 10, query_data.data(), 1000);
-    auto query_end_time = std::chrono::high_resolution_clock::now();
-    auto query_duration = std::chrono::duration_cast<std::chrono::microseconds>(query_end_time - query_start_time);
+  std::vector<size_t> results(query_count * 1000);
+  index.Query(results.data(), query_count, query_data.data(), 1000);
+  auto query_start_time = std::chrono::high_resolution_clock::now();
+  index.Query(results.data(), 10, query_data.data(), 1000);
+  auto query_end_time = std::chrono::high_resolution_clock::now();
+  auto query_duration = std::chrono::duration_cast<std::chrono::microseconds>(
+      query_end_time - query_start_time);
 
-    printf("Query: %zuus\n", query_duration.count());
+  printf("Query: %zuus\n", query_duration.count());
 
   puts("hash_bits,recall1,recall5,recall10,recall100,recall1000");
 
   for (size_t hash_bits = 1; hash_bits <= 4096;) {
     caracal::CudaLshAnnIndex index(
-       dimensions, base_count, base_data.data(), hash_bits, 31337);
-    //caracal::LshAnnIndex index(
-    //    dimensions, base_count, base_data.data(), hash_bits, 31337);
+        dimensions, base_count, base_data.data(), hash_bits, 31337);
+    // caracal::LshAnnIndex index(
+    //     dimensions, base_count, base_data.data(), hash_bits, 31337);
 
     const Evaluation evaluation = evaluate(index,
                                            base_data.data(),

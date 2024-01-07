@@ -1,6 +1,9 @@
+#undef NDEBUG
+
 #include "Sift.h"
 
 #include <bit>
+#include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -10,21 +13,38 @@
 #include "../FlatAnnIndex.h"
 #include "../LshAnnIndex.h"
 
-#undef NDEBUG
-#include <cassert>
-
 namespace caracal {
+
+SiftDataset::SiftDataset(const SiftDatasetConfig &config) {
+  ReadFvecs(database_vectors,
+            database_vectors_count,
+            dimensions,
+            config.database_path);
+
+  size_t query_dimensions;
+  ReadFvecs(query_vectors, query_count, query_dimensions, config.query_path);
+  assert(query_dimensions == dimensions);
+
+  size_t ground_truth_vectors_count;
+  size_t ground_truth_dimensions;
+  ReadFvecs(ground_truth_vectors,
+            ground_truth_vectors_count,
+            ground_truth_dimensions,
+            config.ground_truth_path);
+  assert(ground_truth_vectors_count == query_count &&
+         ground_truth_dimensions == dimensions);
+}
 
 void ReadFvecs(std::vector<float> &data,
                size_t &count,
                size_t &dimensions,
-               std::string path) {
+               const char *path) {
   static_assert(std::endian::native == std::endian::little);
 
   data.clear();
   count = 0;
 
-  FILE *file = fopen(path.c_str(), "rb");
+  FILE *file = fopen(path, "rb");
   assert(file != nullptr);
 
   bool read_dimensions = false;
@@ -55,13 +75,13 @@ void ReadFvecs(std::vector<float> &data,
   fclose(file);
 }
 
-void WriteFvecs(std::string path,
-                const std::vector<float> &data,
+void WriteFvecs(const std::vector<float> &data,
                 size_t count,
-                size_t dimensions) {
+                size_t dimensions,
+                const char *path) {
   static_assert(std::endian::native == std::endian::little);
 
-  FILE *file = fopen(path.c_str(), "wb");
+  FILE *file = fopen(path, "wb");
   assert(file != nullptr);
 
   uint32_t dimensions_u32 = dimensions;
@@ -75,11 +95,10 @@ void WriteFvecs(std::string path,
   fclose(file);
 }
 
-void ComputeGroundTruth(std::string ground_truth_path,
-                        std::string base_path,
-                        std::string query_path) {
-
-  printf("Reading base vectors from %s\n", base_path.c_str());
+void ComputeGroundTruth(const char *ground_truth_path,
+                        const char *base_path,
+                        const char *query_path) {
+  printf("Reading base vectors from %s\n", base_path);
   std::vector<float> base_data;
   size_t base_count;
   size_t dimensions;
@@ -88,7 +107,7 @@ void ComputeGroundTruth(std::string ground_truth_path,
   printf("Building index\n");
   caracal::FlatAnnIndex index(dimensions, base_count, base_data.data());
 
-  printf("Reading query vectors from %s\n", query_path.c_str());
+  printf("Reading query vectors from %s\n", query_path);
   std::vector<float> query_data;
   size_t query_dimensions;
   size_t query_count;
@@ -100,23 +119,14 @@ void ComputeGroundTruth(std::string ground_truth_path,
   std::vector<size_t> query_results(query_count);
   index.Query(query_results.data(), query_count, query_data.data(), 1);
 
-  printf("Writing output ground truth vectors to %s\n",
-         ground_truth_path.c_str());
+  printf("Writing output ground truth vectors to %s\n", ground_truth_path);
   std::vector<float> ground_truth_data;
   for (const size_t index : query_results) {
     ground_truth_data.insert(ground_truth_data.end(),
                              base_data.data() + index * dimensions,
                              base_data.data() + (index + 1) * dimensions);
   }
-  /*for (size_t i = 0 ; i < 10; i++) {
-    printf("==== %.3f\n", index.CosineDistance(&ground_truth_data[i*dimensions],
-  &query_data[i*dimensions])); for (size_t j = 0; j < dimensions; j++) {
-        printf("%.3f %.3f\n", ground_truth_data[i*dimensions +j],
-  query_data[i*dimensions +j]);
-    }
-    puts("");
-  }*/
-  WriteFvecs(ground_truth_path, ground_truth_data, query_count, dimensions);
+  WriteFvecs(ground_truth_data, query_count, dimensions, ground_truth_path);
 }
 
 } // namespace caracal

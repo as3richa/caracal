@@ -195,9 +195,6 @@ void ComputeHashDistances(PitchedView<uint16_t> distances,
             (left_hashes_count + block.y - 1) / block.y,
             (right_hashes_count + block.z - 1) / block.z);
 
-  printf("%d %d %d\n", block.x, block.y, block.z);
-  printf("%d %d\n", grid.y, grid.z);
-  printf("%d\n", shared_memory_size);
   ComputeHashDistancesKernel<<<grid, block, shared_memory_size>>>(
       distances,
       left_hashes,
